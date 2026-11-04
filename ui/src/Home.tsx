@@ -32,7 +32,7 @@ export function Home() {
       const [risks, controls, findings, policies] = await Promise.all([
         rows("Risk", []),
         rows("Control", [["status", "eq", "In Place"], ["effective", "eq", false]]),
-        rows("Finding", [["status", "neq", "Closed"]], { sort: "due_on asc" }),
+        rows("Finding", [["status", "!=", "Closed"]], { sort: "due_on asc" }),
         rows("Policy", [["status", "eq", "Published"]], { sort: "title asc" }),
       ]);
       return { risks: worstFirst(risks), controls, findings, policies };
