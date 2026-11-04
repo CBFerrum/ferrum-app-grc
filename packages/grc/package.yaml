@@ -1,0 +1,36 @@
+package: grc
+version: 0.1.0
+label: Governance and Risk
+description: "Risks scored on a matrix with their treatment and acceptance, controls tested with evidence, policies acknowledged by revision, and findings"
+depends: [core]
+
+modules:
+  - name: grc
+    label: Governance and Risk
+    icon: clipboard-list
+    order: 58
+    items: [Risk, Control, ControlTest, RiskAcceptance, Policy, PolicyAcknowledgement, Finding, GrcSettings]
+
+roles:
+  - name: Risk Manager
+    description: Keeps the risk register, the controls and their tests, the policies and the findings.
+    permissions:
+      - {entity: GrcSettings, read: true, write: true, create: true}
+      - {entity: Risk, read: true, write: true, create: true, export: true}
+      - {entity: Control, read: true, write: true, create: true, export: true}
+      - {entity: ControlTest, read: true, write: true, create: true, export: true}
+      - {entity: RiskAcceptance, read: true, write: true, create: true}
+      - {entity: Policy, read: true, write: true, create: true}
+      - {entity: PolicyAcknowledgement, read: true, export: true}
+      - {entity: Finding, read: true, write: true, create: true, export: true}
+  - name: Risk Approver
+    description: Accepts, rejects or revokes risks taken on above the tolerance.
+    permissions:
+      - {entity: Risk, read: true}
+      - {entity: RiskAcceptance, read: true, write: true}
+      - {entity: Control, read: true}
+  - name: Policy Reader
+    description: Reads the published policies and acknowledges them.
+    permissions:
+      - {entity: Policy, read: true, where: {status: Published}}
+      - {entity: PolicyAcknowledgement, read: true, if_owner: true}
