@@ -1,0 +1,93 @@
+// The register: risks by level (critical first), controls no longer effective, open findings, and
+// published policies. Each opens its record, where a policy is acknowledged.
+
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
+import { api, docPath } from "@ferrum/client";
+import { Badge, ErrorState, PageLoading, useShellTitle } from "@ferrum/kit";
+
+export interface Row {
+  id: string;
+  [k: string]: unknown;
+}
+
+const rows = (entity: string, filters: unknown[], extra: Record<string, string | number> = {}) =>
+  api.get<{ rows: Row[] }>(docPath(entity), { filters: JSON.stringify(filters), limit: 500, ...extra }).then((r) => r.rows);
+
+const ORDER = ["Critical", "High", "Medium", "Low"];
+
+/** Risks, the worst first, then by score. */
+export function worstFirst(list: Row[]): Row[] {
+  const rank = (r: Row) => ORDER.indexOf(String(r.level ?? "Low"));
+  return [...list].sort((a, b) => rank(a) - rank(b) || Number(b.current_score ?? 0) - Number(a.current_score ?? 0));
+}
+
+const TONE: Record<string, "red" | "amber" | "blue" | "neutral"> = { Critical: "red", High: "amber", Medium: "blue", Low: "neutral" };
+
+export function Home() {
+  useShellTitle("Governance and Risk");
+  const q = useQuery({
+    queryKey: ["grc", "register"],
+    queryFn: async () => {
+      const [risks, controls, findings, policies] = await Promise.all([
+        rows("Risk", []),
+        rows("Control", [["status", "eq", "In Place"], ["effective", "eq", false]]),
+        rows("Finding", [["status", "neq", "Closed"]], { sort: "due_on asc" }),
+        rows("Policy", [["status", "eq", "Published"]], { sort: "title asc" }),
+      ]);
+      return { risks: worstFirst(risks), controls, findings, policies };
+    },
+  });
+  if (q.isPending) return <PageLoading />;
+  if (q.isError) return <ErrorState error={q.error} onRetry={() => void q.refetch()} />;
+  return (
+    <div className="np-page">
+      <header className="row" style={{ justifyContent: "space-between" }}>
+        <h2>The register</h2>
+        <Link to="/e/Risk/new">New risk</Link>
+      </header>
+      <div className="np-columns">
+        <section className="card card-pad stack" aria-label="Risks">
+          <h3>Risks ({q.data.risks.length})</h3>
+          <ul className="stack">
+            {q.data.risks.map((r) => (
+              <li key={r.id}>
+                <Badge tone={TONE[String(r.level)] ?? "neutral"}>{`${String(r.level ?? "")} ${String(r.current_score ?? "")}`}</Badge> <Link to={`/e/Risk/${r.id}`}>{String(r.title)}</Link> · {String(r.treatment ?? "")}
+              </li>
+            ))}
+          </ul>
+        </section>
+        <section className="card card-pad stack" aria-label="Controls to test">
+          <h3>Controls to test ({q.data.controls.length})</h3>
+          <ul className="stack">
+            {q.data.controls.map((c) => (
+              <li key={c.id}>
+                <Link to={`/e/Control/${c.id}`}>{String(c.control_name)}</Link> {c.last_tested_on ? `· last ${String(c.last_tested_on)}` : "· never tested"}
+              </li>
+            ))}
+          </ul>
+        </section>
+        <section className="card card-pad stack" aria-label="Open findings">
+          <h3>Open findings ({q.data.findings.length})</h3>
+          <ul className="stack">
+            {q.data.findings.map((f) => (
+              <li key={f.id}>
+                <Link to={`/e/Finding/${f.id}`}>{`${String(f.number ?? "")} · ${String(f.title)} · due ${String(f.due_on ?? "")}`}</Link> {f.overdue ? <Badge tone="red">Overdue</Badge> : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+        <section className="card card-pad stack" aria-label="Policies">
+          <h3>Policies ({q.data.policies.length})</h3>
+          <ul className="stack">
+            {q.data.policies.map((p) => (
+              <li key={p.id}>
+                <Link to={`/e/Policy/${p.id}`}>{`${String(p.title)} · revision ${String(p.revision ?? "")}`}</Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+    </div>
+  );
+}

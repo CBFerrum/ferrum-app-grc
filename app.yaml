@@ -1,0 +1,31 @@
+id: grc
+name: Governance and Risk
+version: 0.1.0
+publisher: cbferrum
+summary: "Risks scored on a matrix with their treatment and acceptance, controls tested with evidence, policies acknowledged by revision, and findings"
+description: README.md
+categories: [productivity, analytics]
+license: AGPL-3.0-only
+homepage: https://github.com/CBFerrum/ferrum-app-grc
+support: https://github.com/CBFerrum/ferrum-app-grc/issues
+runtime: native
+platform: ">=0.3.2, <0.4"
+packages: [grc]
+uninstall: ask
+# Its own interface at /grc/: the risk register by level, controls due a test, policies to read.
+ui:
+  dist: ui/dist
+contributes:
+  shell.app:
+    - id: grc
+      route: grc
+      title: Governance and Risk
+      description: Risks, controls, policies and findings
+      icon: clipboard-list
+      color: "#7c3aed"
+      roles: [Risk Manager, Risk Approver, Policy Reader]
+  shell.open:
+    - {id: grc, package: grc, path: "grc/e/{entity}/{id}", list: "grc/e/{entity}"}
+  shell.create:
+    - {id: risk, label: Risk, path: grc/e/Risk/new, entity: Risk}
+    - {id: finding, label: Finding, path: grc/e/Finding/new, entity: Finding}

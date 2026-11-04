@@ -1,0 +1,162 @@
+- name: GrcSettings
+  label: Governance Settings
+  kind: settings
+  module: grc
+  description: "How much risk the organisation tolerates, and how often controls are tested."
+  fields:
+    - {name: tolerance, type: int, required: true, default: 6, description: "The highest score (likelihood times impact, out of 25) accepted without a risk acceptance"}
+    - {name: test_every_days, type: int, required: true, default: 365, description: "A control's test is current this many days"}
+  form:
+    - {label: Appetite, fields: [tolerance, test_every_days]}
+
+- name: RiskControl
+  label: Control
+  kind: child
+  fields:
+    - {name: control, type: link, to: Control, required: true, in_list: true}
+
+- name: Risk
+  label: Risk
+  label_plural: Risk Register
+  kind: master
+  module: grc
+  title_field: title
+  description: Something that could go wrong, scored before controls (inherent), with them (current) and as targeted (residual), each likelihood times impact on a five-by-five matrix.
+  fields:
+    - {name: title, type: data, required: true, in_list: true}
+    - {name: description, type: text}
+    - {name: category, type: select, options: [Strategic, Operational, Financial, Compliance, Security, Reputational], default: Operational, in_list: true, in_filter: true}
+    - {name: owner, type: email, required: true, in_list: true, in_filter: true}
+    - {name: inherent_likelihood, type: int, required: true, default: 3}
+    - {name: inherent_impact, type: int, required: true, default: 3}
+    - {name: current_likelihood, type: int, required: true, default: 3}
+    - {name: current_impact, type: int, required: true, default: 3}
+    - {name: residual_likelihood, type: int, required: true, default: 3}
+    - {name: residual_impact, type: int, required: true, default: 3}
+    - {name: inherent_score, type: int, read_only: true}
+    - {name: current_score, type: int, read_only: true, in_list: true}
+    - {name: residual_score, type: int, read_only: true}
+    - {name: level, type: select, options: [Low, Medium, High, Critical], read_only: true, in_list: true, in_filter: true, description: "The current score's"}
+    - {name: treatment, type: select, options: [Open, Mitigate, Accept, Avoid, Transfer], default: Open, in_list: true, in_filter: true}
+    - {name: controls, type: table, of: RiskControl}
+    - {name: review_by, type: date, in_list: true}
+  numbering: {template: "RSK-{YYYY}-{seq:4}"}
+  list: {columns: [number, title, owner, current_score, level, treatment], sort: created_at desc}
+
+- name: ControlEvidence
+  label: Evidence
+  kind: child
+  fields:
+    - {name: title, type: data, required: true, in_list: true}
+    - {name: file, type: attach, in_list: true}
+
+- name: Control
+  label: Control
+  label_plural: Controls
+  kind: master
+  module: grc
+  title_field: control_name
+  description: What is done to keep a risk down. It is effective while its last test passed and is still current.
+  fields:
+    - {name: control_name, type: data, required: true, unique: true, in_list: true, label: Name}
+    - {name: category, type: select, options: [Policy, Process, Technical, Physical], default: Process, in_list: true, in_filter: true}
+    - {name: owner, type: email, in_list: true}
+    - {name: status, type: select, options: [Planned, In Place, Retired], default: Planned, in_list: true, in_filter: true}
+    - {name: references, type: data, description: "The framework requirements it answers, by their identifiers"}
+    - {name: last_tested_on, type: date, read_only: true, no_copy: true, in_list: true}
+    - {name: last_result, type: select, options: [Effective, Partially Effective, Ineffective], read_only: true, no_copy: true, in_list: true}
+    - {name: effective, type: check, read_only: true, no_copy: true, in_list: true, in_filter: true}
+    - {name: description, type: text}
+  list: {columns: [control_name, category, status, last_tested_on, last_result, effective], sort: control_name asc}
+
+- name: ControlTest
+  label: Control Test
+  label_plural: Control Tests
+  kind: master
+  module: grc
+  title_field: control
+  description: A test of a control on a day, with its result and the evidence for it; it is the control's last test while no later one exists.
+  fields:
+    - {name: control, type: link, to: Control, required: true, in_list: true, in_filter: true}
+    - {name: tested_on, type: date, required: true, in_list: true}
+    - {name: tester, type: email, read_only: true, no_copy: true, in_list: true}
+    - {name: result, type: select, options: [Effective, Partially Effective, Ineffective], required: true, in_list: true}
+    - {name: evidence, type: table, of: ControlEvidence}
+    - {name: notes, type: text}
+  list: {columns: [control, tested_on, result, tester], sort: tested_on desc}
+
+- name: RiskAcceptance
+  label: Risk Acceptance
+  label_plural: Risk Acceptances
+  kind: master
+  module: grc
+  title_field: risk
+  description: A risk above the tolerance taken on, said why, approved by a risk approver who does not own it, until it expires.
+  fields:
+    - {name: risk, type: link, to: Risk, required: true, in_list: true, in_filter: true}
+    - {name: justification, type: text, required: true}
+    - {name: expires_on, type: date, required: true, in_list: true}
+    - {name: status, type: select, options: [Draft, Accepted, Rejected, Revoked, Expired], default: Draft, read_only: true, no_copy: true, in_list: true, in_filter: true}
+    - {name: approver, type: email, read_only: true, no_copy: true, in_list: true}
+    - {name: decided_on, type: date, read_only: true, no_copy: true}
+  actions:
+    - {name: accept_risk, label: Accept It, permission: write, condition: "doc.status == 'Draft'"}
+    - {name: reject_acceptance, label: Reject It, permission: write, condition: "doc.status == 'Draft'"}
+    - {name: revoke_acceptance, label: Revoke It, permission: write, condition: "doc.status == 'Accepted'"}
+  numbering: {template: "ACC-{YYYY}-{seq:4}"}
+  list: {columns: [number, risk, expires_on, status, approver], sort: created_at desc}
+
+- name: Policy
+  label: Policy
+  label_plural: Policies
+  kind: master
+  module: grc
+  title_field: title
+  description: What people are asked to follow. Published with new text, it is at its next revision, and everyone acknowledges it again.
+  fields:
+    - {name: title, type: data, required: true, unique: true, in_list: true}
+    - {name: owner, type: email, in_list: true}
+    - {name: text, type: markdown, required: true}
+    - {name: status, type: select, options: [Draft, Published, Retired], default: Draft, read_only: true, no_copy: true, in_list: true, in_filter: true}
+    - {name: revision, type: int, read_only: true, no_copy: true, in_list: true}
+    - {name: published_text, type: markdown, read_only: true, no_copy: true, description: "The text at its revision"}
+    - {name: published_on, type: date, read_only: true, no_copy: true, in_list: true}
+    - {name: review_by, type: date}
+  actions:
+    - {name: publish, label: Publish It, permission: write, condition: "doc.status != 'Retired'"}
+    - {name: acknowledge, label: I Have Read It, permission: read, condition: "doc.status == 'Published'"}
+    - {name: retire, label: Retire It, permission: write, condition: "doc.status == 'Published'"}
+  list: {columns: [title, owner, revision, status, published_on], sort: title asc}
+
+- name: PolicyAcknowledgement
+  label: Policy Acknowledgement
+  label_plural: Policy Acknowledgements
+  kind: master
+  module: grc
+  title_field: person
+  fields:
+    - {name: policy, type: link, to: Policy, required: true, read_only: true, in_list: true, in_filter: true}
+    - {name: revision, type: int, required: true, read_only: true, in_list: true}
+    - {name: person, type: email, required: true, read_only: true, in_list: true, in_filter: true}
+    - {name: acknowledged_at, type: datetime, read_only: true, in_list: true}
+  list: {columns: [policy, revision, person, acknowledged_at], sort: acknowledged_at desc}
+
+- name: Finding
+  label: Finding
+  label_plural: Findings
+  kind: master
+  module: grc
+  title_field: title
+  description: Something an audit or a test found wrong, owned and due. Closed, it says how it was fixed.
+  fields:
+    - {name: title, type: data, required: true, in_list: true}
+    - {name: severity, type: select, options: [Low, Medium, High, Critical], default: Medium, in_list: true, in_filter: true}
+    - {name: control, type: link, to: Control, in_list: true}
+    - {name: risk, type: link, to: Risk}
+    - {name: owner, type: email, required: true, in_list: true, in_filter: true}
+    - {name: due_on, type: date, required: true, in_list: true}
+    - {name: status, type: select, options: [Open, Remediating, Closed], default: Open, in_list: true, in_filter: true}
+    - {name: remediation, type: text}
+    - {name: overdue, type: check, read_only: true, no_copy: true, in_list: true, in_filter: true}
+  numbering: {template: "FND-{YYYY}-{seq:4}"}
+  list: {columns: [number, title, severity, owner, due_on, status, overdue], sort: due_on asc}
