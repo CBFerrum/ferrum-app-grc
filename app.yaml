@@ -1,6 +1,6 @@
 id: grc
 name: Governance and Risk
-version: 0.1.8
+version: 0.1.9
 publisher: cbferrum
 summary: "Risks scored on a matrix with their treatment and acceptance, controls tested with evidence, policies acknowledged by revision, and findings"
 description: README.md
