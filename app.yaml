@@ -1,6 +1,6 @@
 id: grc
 name: Governance and Risk
-version: 0.1.12
+version: 0.1.13
 publisher: cbferrum
 summary: "Risks scored on a matrix with their treatment and acceptance, controls tested with evidence, policies acknowledged by revision, and findings"
 description: README.md
@@ -29,3 +29,18 @@ contributes:
   shell.create:
     - {id: risk, label: Risk, path: grc/e/Risk/new, entity: Risk}
     - {id: finding, label: Finding, path: grc/e/Finding/new, entity: Finding}
+  # What the assistant should know in Governance and Risk's pages, and what it suggests asking there.
+  shell.assistant:
+    - id: grc
+      title: "Governance and Risk"
+      instructions: >-
+        A Risk is scored on the likelihood and impact matrix, before and after its controls (RiskControl). A Control
+        is Planned, In Place or Retired; its ControlTest results and ControlEvidence show whether it works. A
+        RiskAcceptance (Draft, Accepted, Rejected, Revoked, Expired) records who accepted a risk and until when. A
+        Policy is Published by revision, and a PolicyAcknowledgement records who read which revision. A Finding (Open,
+        Remediating, Closed) is a gap found.
+      suggestions:
+        - "What are our highest risks after their controls?"
+        - "Which controls failed their last test?"
+        - "Who has not acknowledged the current revision of a policy?"
+        - "Which risk acceptances expire soon?"
