@@ -3,7 +3,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { api, docPath, t } from "@ferrum/client";
+import { api, docPath, t, isolate } from "@ferrum/client";
 import { Badge, ErrorState, PageLoading, useShellTitle } from "@ferrum/kit";
 
 export interface Row {
@@ -25,7 +25,7 @@ export function worstFirst(list: Row[]): Row[] {
 const TONE: Record<string, "red" | "amber" | "blue" | "neutral"> = { Critical: "red", High: "amber", Medium: "blue", Low: "neutral" };
 
 export function Home() {
-  useShellTitle("Governance and Risk");
+  useShellTitle(t("Governance and Risk"));
   const q = useQuery({
     queryKey: ["grc", "register"],
     queryFn: async () => {
@@ -52,7 +52,7 @@ export function Home() {
           <ul className="stack">
             {q.data.risks.map((r) => (
               <li key={r.id}>
-                <Badge tone={TONE[String(r.level)] ?? "neutral"}>{`${String(r.level ?? "")} ${String(r.current_score ?? "")}`}</Badge> <Link to={`/e/Risk/${r.id}`}>{String(r.title)}</Link> · {String(r.treatment ?? "")}
+                <Badge tone={TONE[String(r.level)] ?? "neutral"}>{isolate(`${String(r.level ?? "")} ${String(r.current_score ?? "")}`)}</Badge> <Link to={`/e/Risk/${r.id}`}>{isolate(String(r.title))}</Link> · {isolate(String(r.treatment ?? ""))}
               </li>
             ))}
           </ul>
@@ -62,7 +62,7 @@ export function Home() {
           <ul className="stack">
             {q.data.controls.map((c) => (
               <li key={c.id}>
-                <Link to={`/e/Control/${c.id}`}>{String(c.control_name)}</Link> {c.last_tested_on ? `· last ${String(c.last_tested_on)}` : "· never tested"}
+                <Link to={`/e/Control/${c.id}`}>{isolate(String(c.control_name))}</Link> {c.last_tested_on ? t("· last {value}", { value: String(c.last_tested_on) }) : t("· never tested")}
               </li>
             ))}
           </ul>
@@ -72,7 +72,7 @@ export function Home() {
           <ul className="stack">
             {q.data.findings.map((f) => (
               <li key={f.id}>
-                <Link to={`/e/Finding/${f.id}`}>{`${String(f.number ?? "")} · ${String(f.title)} · due ${String(f.due_on ?? "")}`}</Link> {f.overdue ? <Badge tone="red">{t("Overdue")}</Badge> : null}
+                <Link to={`/e/Finding/${f.id}`}>{t("{value} · {value2} · due {value3}", { value: String(f.number ?? ""), value2: String(f.title), value3: String(f.due_on ?? "") })}</Link> {f.overdue ? <Badge tone="red">{t("Overdue")}</Badge> : null}
               </li>
             ))}
           </ul>
@@ -82,7 +82,7 @@ export function Home() {
           <ul className="stack">
             {q.data.policies.map((p) => (
               <li key={p.id}>
-                <Link to={`/e/Policy/${p.id}`}>{`${String(p.title)} · revision ${String(p.revision ?? "")}`}</Link>
+                <Link to={`/e/Policy/${p.id}`}>{t("{value} · revision {value2}", { value: String(p.title), value2: String(p.revision ?? "") })}</Link>
               </li>
             ))}
           </ul>
