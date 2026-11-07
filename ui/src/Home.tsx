@@ -3,7 +3,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { api, docPath } from "@ferrum/client";
+import { api, docPath, t } from "@ferrum/client";
 import { Badge, ErrorState, PageLoading, useShellTitle } from "@ferrum/kit";
 
 export interface Row {
@@ -43,12 +43,12 @@ export function Home() {
   return (
     <div className="np-page">
       <header className="row" style={{ justifyContent: "space-between" }}>
-        <h2>The register</h2>
-        <Link to="/e/Risk/new">New risk</Link>
+        <h2>{t("The register")}</h2>
+        <Link to="/e/Risk/new">{t("New risk")}</Link>
       </header>
       <div className="np-columns">
-        <section className="card card-pad stack" aria-label="Risks">
-          <h3>Risks ({q.data.risks.length})</h3>
+        <section className="card card-pad stack" aria-label={t("Risks")}>
+          <h3>{t("Risks ({length})", { length: q.data.risks.length })}</h3>
           <ul className="stack">
             {q.data.risks.map((r) => (
               <li key={r.id}>
@@ -57,8 +57,8 @@ export function Home() {
             ))}
           </ul>
         </section>
-        <section className="card card-pad stack" aria-label="Controls to test">
-          <h3>Controls to test ({q.data.controls.length})</h3>
+        <section className="card card-pad stack" aria-label={t("Controls to test")}>
+          <h3>{t("Controls to test ({length})", { length: q.data.controls.length })}</h3>
           <ul className="stack">
             {q.data.controls.map((c) => (
               <li key={c.id}>
@@ -67,18 +67,18 @@ export function Home() {
             ))}
           </ul>
         </section>
-        <section className="card card-pad stack" aria-label="Open findings">
-          <h3>Open findings ({q.data.findings.length})</h3>
+        <section className="card card-pad stack" aria-label={t("Open findings")}>
+          <h3>{t("Open findings ({length})", { length: q.data.findings.length })}</h3>
           <ul className="stack">
             {q.data.findings.map((f) => (
               <li key={f.id}>
-                <Link to={`/e/Finding/${f.id}`}>{`${String(f.number ?? "")} · ${String(f.title)} · due ${String(f.due_on ?? "")}`}</Link> {f.overdue ? <Badge tone="red">Overdue</Badge> : null}
+                <Link to={`/e/Finding/${f.id}`}>{`${String(f.number ?? "")} · ${String(f.title)} · due ${String(f.due_on ?? "")}`}</Link> {f.overdue ? <Badge tone="red">{t("Overdue")}</Badge> : null}
               </li>
             ))}
           </ul>
         </section>
-        <section className="card card-pad stack" aria-label="Policies">
-          <h3>Policies ({q.data.policies.length})</h3>
+        <section className="card card-pad stack" aria-label={t("Policies")}>
+          <h3>{t("Policies ({length})", { length: q.data.policies.length })}</h3>
           <ul className="stack">
             {q.data.policies.map((p) => (
               <li key={p.id}>
