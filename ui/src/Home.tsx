@@ -3,7 +3,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api, docPath, formatValue, t, isolate } from "@ferrum/client";
-import { Badge, ButtonLink, HomeSkeleton, LoadFailed, PageHead, Queue, QueueGrid, QueueItem, useShellTitle } from "@ferrum/kit";
+import { Badge, ButtonLink, HomeSkeleton, LoadFailed, PageHead, PageStack, Queue, QueueGrid, QueueItem, type Tone, useShellTitle } from "@ferrum/kit";
 
 export interface Row {
   id: string;
@@ -21,7 +21,7 @@ export function worstFirst(list: Row[]): Row[] {
   return [...list].sort((a, b) => rank(a) - rank(b) || Number(b.current_score ?? 0) - Number(a.current_score ?? 0));
 }
 
-const TONE: Record<string, "red" | "amber" | "blue" | "neutral"> = { Critical: "red", High: "amber", Medium: "blue", Low: "neutral" };
+const TONE: Record<string, Tone> = { Critical: "red", High: "amber", Medium: "blue", Low: "neutral" };
 
 /** The tone of a risk's level mark, from its stored id; any other value is neutral. */
 export const levelTone = (level: unknown) => (typeof level === "string" && Object.prototype.hasOwnProperty.call(TONE, level) ? TONE[level] : "neutral");
@@ -52,23 +52,24 @@ export function Home() {
     </ButtonLink>
   );
   if (q.isPending) return (
-    <>
+    <PageStack>
       <PageHead title={t("The register")} />
       <HomeSkeleton queues={4} />
-    </>
+    </PageStack>
   );
   if (q.isError) return (
-    <>
+    <PageStack>
       <PageHead title={t("The register")} actions={create} />
       <LoadFailed error={q.error} onRetry={() => void q.refetch()} />
-    </>
+    </PageStack>
   );
   const { risks, controls, policies } = q.data;
   // What is late comes before what is merely due.
   const findings = [...q.data.findings].sort((a, b) => Number(Boolean(b.overdue)) - Number(Boolean(a.overdue)));
+  const summary = [findings.length && t("{n} open findings", { n: findings.length }), controls.length && t("{n} controls to test", { n: controls.length })].filter(Boolean).join(" · ");
   return (
-    <>
-      <PageHead title={t("The register")} description={findings.length + controls.length > 0 ? t("{findings} open findings · {controls} controls to test", { findings: findings.length, controls: controls.length }) : undefined} actions={create} />
+    <PageStack>
+      <PageHead title={t("The register")} description={summary ? isolate(summary) : undefined} actions={create} />
       <QueueGrid>
         <Queue title={t("Open findings")} count={findings.length} tone={findings.some((f) => f.overdue) ? "attention" : "default"} more={{ to: "/e/Finding", count: findings.length - LIMIT }}>
           {findings.slice(0, LIMIT).map((f) => (
@@ -91,6 +92,6 @@ export function Home() {
           ))}
         </Queue>
       </QueueGrid>
-    </>
+    </PageStack>
   );
 }

@@ -11,5 +11,6 @@
   "last tested {day}": "पिछला परीक्षण {day}",
   "never tested": "कभी परीक्षण नहीं हुआ",
   "revision {revision}": "संशोधन {revision}",
-  "{findings} open findings · {controls} controls to test": "{findings} खुले निष्कर्ष · {controls} नियंत्रण जाँचने हैं"
+  "{n} controls to test": "{n} नियंत्रण जाँचने हैं",
+  "{n} open findings": "{n} खुले निष्कर्ष"
 }
