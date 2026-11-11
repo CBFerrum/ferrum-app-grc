@@ -1,18 +1,15 @@
 {
   "Controls to test": "ضوابط للاختبار",
-  "Controls to test ({length})": "ضوابط للاختبار ({length})",
   "Go to the register": "اذهب إلى السجل",
   "Governance and Risk": "الحوكمة والمخاطر",
   "New risk": "خطر جديد",
   "Open findings": "النتائج المفتوحة",
-  "Open findings ({length})": "النتائج المفتوحة ({length})",
   "Policies": "السياسات",
-  "Policies ({length})": "السياسات ({length})",
   "Risks": "المخاطر",
-  "Risks ({length})": "المخاطر ({length})",
   "The register": "السجل",
-  "{value} · revision {value2}": "{value} · المراجعة {value2}",
-  "{value} · {value2} · due {value3}": "{value} · {value2} · مستحق في {value3}",
-  "· last {value}": "· آخرها {value}",
-  "· never tested": "· لم يُختبر قط"
+  "due {day}": "مستحق في {day}",
+  "last tested {day}": "آخر اختبار {day}",
+  "never tested": "لم يُختبر قط",
+  "revision {revision}": "المراجعة {revision}",
+  "{findings} open findings · {controls} controls to test": "{findings} نتائج مفتوحة · {controls} ضوابط للاختبار"
 }
