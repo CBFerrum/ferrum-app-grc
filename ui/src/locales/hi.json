@@ -1,18 +1,15 @@
 {
   "Controls to test": "जाँचने के लिए नियंत्रण",
-  "Controls to test ({length})": "जाँचने के लिए नियंत्रण ({length})",
   "Go to the register": "रजिस्टर पर जाएँ",
   "Governance and Risk": "शासन और जोखिम",
   "New risk": "नया जोखिम",
   "Open findings": "खुले निष्कर्ष",
-  "Open findings ({length})": "खुले निष्कर्ष ({length})",
   "Policies": "नीतियाँ",
-  "Policies ({length})": "नीतियाँ ({length})",
   "Risks": "जोखिम",
-  "Risks ({length})": "जोखिम ({length})",
   "The register": "रजिस्टर",
-  "{value} · revision {value2}": "{value} · संशोधन {value2}",
-  "{value} · {value2} · due {value3}": "{value} · {value2} · देय {value3}",
-  "· last {value}": "· पिछला {value}",
-  "· never tested": "· कभी परीक्षण नहीं हुआ"
+  "due {day}": "देय {day}",
+  "last tested {day}": "पिछला परीक्षण {day}",
+  "never tested": "कभी परीक्षण नहीं हुआ",
+  "revision {revision}": "संशोधन {revision}",
+  "{findings} open findings · {controls} controls to test": "{findings} खुले निष्कर्ष · {controls} नियंत्रण जाँचने हैं"
 }
