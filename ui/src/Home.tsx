@@ -2,9 +2,8 @@
 // published policies. Each opens its record, where a policy is acknowledged.
 
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router";
-import { api, docPath, t, isolate } from "@ferrum/client";
-import { Badge, ErrorState, PageLoading, useShellTitle } from "@ferrum/kit";
+import { api, docPath, formatValue, t, isolate } from "@ferrum/client";
+import { Badge, ButtonLink, HomeSkeleton, LoadFailed, PageHead, PageStack, Queue, QueueGrid, QueueItem, type Tone, useShellTitle } from "@ferrum/kit";
 
 export interface Row {
   id: string;
@@ -22,7 +21,16 @@ export function worstFirst(list: Row[]): Row[] {
   return [...list].sort((a, b) => rank(a) - rank(b) || Number(b.current_score ?? 0) - Number(a.current_score ?? 0));
 }
 
-const TONE: Record<string, "red" | "amber" | "blue" | "neutral"> = { Critical: "red", High: "amber", Medium: "blue", Low: "neutral" };
+const TONE: Record<string, Tone> = { Critical: "red", High: "amber", Medium: "blue", Low: "neutral" };
+
+/** The tone of a risk's level mark, from its stored id; any other value is neutral. */
+export const levelTone = (level: unknown) => (typeof level === "string" && Object.prototype.hasOwnProperty.call(TONE, level) ? TONE[level] : "neutral");
+
+/** A day as the person reads it ("20 Nov 2026"); empty when there is none. */
+const day = (v: unknown) => formatValue({ type: "date" }, v);
+
+/** The queues show this many rows each; the rest is "and N more", linking to the list. */
+const LIMIT = 5;
 
 export function Home() {
   useShellTitle(t("Governance and Risk"));
@@ -38,56 +46,52 @@ export function Home() {
       return { risks: worstFirst(risks), controls, findings, policies };
     },
   });
-  if (q.isPending) return <PageLoading />;
-  if (q.isError) return <ErrorState error={q.error} onRetry={() => void q.refetch()} />;
+  const create = (
+    <ButtonLink to="/e/Risk/new" variant="primary" icon="plus">
+      {t("New risk")}
+    </ButtonLink>
+  );
+  if (q.isPending) return (
+    <PageStack>
+      <PageHead title={t("The register")} />
+      <HomeSkeleton queues={4} />
+    </PageStack>
+  );
+  if (q.isError) return (
+    <PageStack>
+      <PageHead title={t("The register")} actions={create} />
+      <LoadFailed error={q.error} onRetry={() => void q.refetch()} />
+    </PageStack>
+  );
+  const { risks, controls, policies } = q.data;
+  // What is late comes before what is merely due.
+  const findings = [...q.data.findings].sort((a, b) => Number(Boolean(b.overdue)) - Number(Boolean(a.overdue)));
+  const summary = [findings.length && t("{n} open findings", { n: findings.length }), controls.length && t("{n} controls to test", { n: controls.length })].filter(Boolean).join(" · ");
   return (
-    <div className="np-page">
-      <header className="row" style={{ justifyContent: "space-between" }}>
-        <h2>{t("The register")}</h2>
-        <Link to="/e/Risk/new">{t("New risk")}</Link>
-      </header>
-      <div className="np-columns">
-        <section className="card card-pad stack" aria-label={t("Risks")}>
-          <h3>{t("Risks ({length})", { length: q.data.risks.length })}</h3>
-          <ul className="stack">
-            {q.data.risks.map((r) => (
-              <li key={r.id}>
-                <Badge tone={TONE[String(r.level)] ?? "neutral"}>{isolate(`${String(r.level ?? "")} ${String(r.current_score ?? "")}`)}</Badge> <Link to={`/e/Risk/${r.id}`}>{isolate(String(r.title))}</Link> · {isolate(String(r.treatment ?? ""))}
-              </li>
-            ))}
-          </ul>
-        </section>
-        <section className="card card-pad stack" aria-label={t("Controls to test")}>
-          <h3>{t("Controls to test ({length})", { length: q.data.controls.length })}</h3>
-          <ul className="stack">
-            {q.data.controls.map((c) => (
-              <li key={c.id}>
-                <Link to={`/e/Control/${c.id}`}>{isolate(String(c.control_name))}</Link> {c.last_tested_on ? t("· last {value}", { value: String(c.last_tested_on) }) : t("· never tested")}
-              </li>
-            ))}
-          </ul>
-        </section>
-        <section className="card card-pad stack" aria-label={t("Open findings")}>
-          <h3>{t("Open findings ({length})", { length: q.data.findings.length })}</h3>
-          <ul className="stack">
-            {q.data.findings.map((f) => (
-              <li key={f.id}>
-                <Link to={`/e/Finding/${f.id}`}>{t("{value} · {value2} · due {value3}", { value: String(f.number ?? ""), value2: String(f.title), value3: String(f.due_on ?? "") })}</Link> {f.overdue ? <Badge tone="red">{t("Overdue")}</Badge> : null}
-              </li>
-            ))}
-          </ul>
-        </section>
-        <section className="card card-pad stack" aria-label={t("Policies")}>
-          <h3>{t("Policies ({length})", { length: q.data.policies.length })}</h3>
-          <ul className="stack">
-            {q.data.policies.map((p) => (
-              <li key={p.id}>
-                <Link to={`/e/Policy/${p.id}`}>{t("{value} · revision {value2}", { value: String(p.title), value2: String(p.revision ?? "") })}</Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      </div>
-    </div>
+    <PageStack>
+      <PageHead title={t("The register")} description={summary ? isolate(summary) : undefined} actions={create} />
+      <QueueGrid>
+        <Queue title={t("Open findings")} count={findings.length} tone={findings.some((f) => f.overdue) ? "attention" : "default"} more={{ to: "/e/Finding", count: findings.length - LIMIT }}>
+          {findings.slice(0, LIMIT).map((f) => (
+            <QueueItem key={f.id} to={`/e/Finding/${f.id}`} title={isolate(String(f.title))} meta={isolate([String(f.number ?? ""), f.due_on ? t("due {day}", { day: day(f.due_on) }) : ""].filter(Boolean).join(" · "))} trailing={f.overdue ? <Badge tone="red">{t("Overdue")}</Badge> : null} />
+          ))}
+        </Queue>
+        <Queue title={t("Controls to test")} count={controls.length} more={{ to: "/e/Control", count: controls.length - LIMIT }}>
+          {controls.slice(0, LIMIT).map((c) => (
+            <QueueItem key={c.id} to={`/e/Control/${c.id}`} title={isolate(String(c.control_name))} meta={c.last_tested_on ? t("last tested {day}", { day: day(c.last_tested_on) }) : t("never tested")} />
+          ))}
+        </Queue>
+        <Queue title={t("Risks")} count={risks.length} tone={risks.some((r) => r.level === "Critical") ? "attention" : "default"} more={{ to: "/e/Risk", count: risks.length - LIMIT }}>
+          {risks.slice(0, LIMIT).map((r) => (
+            <QueueItem key={r.id} to={`/e/Risk/${r.id}`} title={isolate(String(r.title))} meta={isolate(String(r.treatment ?? ""))} trailing={<Badge tone={levelTone(r.level)}>{isolate(`${String(r.level ?? "")} ${String(r.current_score ?? "")}`)}</Badge>} />
+          ))}
+        </Queue>
+        <Queue title={t("Policies")} count={policies.length} more={{ to: "/e/Policy", count: policies.length - LIMIT }}>
+          {policies.slice(0, LIMIT).map((p) => (
+            <QueueItem key={p.id} to={`/e/Policy/${p.id}`} title={isolate(String(p.title))} meta={p.revision ? t("revision {revision}", { revision: String(p.revision) }) : undefined} />
+          ))}
+        </Queue>
+      </QueueGrid>
+    </PageStack>
   );
 }
