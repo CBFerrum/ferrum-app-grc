@@ -11,5 +11,6 @@
   "last tested {day}": "آخر اختبار {day}",
   "never tested": "لم يُختبر قط",
   "revision {revision}": "المراجعة {revision}",
-  "{findings} open findings · {controls} controls to test": "{findings} نتائج مفتوحة · {controls} ضوابط للاختبار"
+  "{n} controls to test": "{n} ضوابط للاختبار",
+  "{n} open findings": "{n} نتائج مفتوحة"
 }
