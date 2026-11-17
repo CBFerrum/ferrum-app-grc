@@ -34,7 +34,7 @@ impl DocHook for PolicyHook {
                         hc.tx,
                         "Policy",
                         policy,
-                        obj(json!({"status": "Published", "revision": next, "published_text": s(doc, "text"), "published_on": Utc::now().date_naive().to_string()})),
+                        obj(json!({"status": "Published", "revision": next, "published_text": s(doc, "text"), "published_on": hc.ctx.today().to_string()})),
                     )
                     .await?;
                 Ok(Some(json!({"status": "Published", "revision": next})))

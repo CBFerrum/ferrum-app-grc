@@ -245,4 +245,23 @@ async fn scenario() {
     refused(t.k.insert(&ra, "Risk", obj(risk("Mine", "ra@secure.test", [1, 1, 1, 1, 1, 1], "Open", json!([])))).await, "forbidden", "");
     refused(t.k.insert(&reader, "Policy", obj(json!({"title": "Mine", "text": "x"}))).await, "forbidden", "");
     refused(t.k.insert(&ra, "ControlTest", obj(test(backups, today.to_string(), "Ineffective", json!([])))).await, "forbidden", "");
+
+    // ───────────── the workspace's day, not UTC's ─────────────
+    // No clock can be set: as the platform's own suites do, the workspace moves to a zone whose day is not UTC's now
+    // (UTC-11 before 10:00 UTC, UTC+14 after), and what the app dates or checks against "today" is the workspace's day.
+    let zone = if chrono::Timelike::hour(&Utc::now()) < 10 { "Pacific/Pago_Pago" } else { "Pacific/Kiritimati" };
+    t.k.update_tenant_settings(&t.admin, &obj(json!({"timezone": zone}))).await.expect("the workspace's zone");
+    let again = |who: &Ctx| t.k.load_ctx(t.tenant, who.user, None, "it".into());
+    let (rm, ra) = (again(&rm).await.unwrap(), again(&ra).await.unwrap());
+    let day = rm.today();
+    assert_ne!(day, Utc::now().date_naive(), "{zone}'s day is not UTC's");
+    let rules = uid(&t.insert(&rm, "Policy", json!({"title": "Clean desk", "owner": "rm@secure.test", "text": "Clear your desk."})).await["id"]);
+    t.act(&rm, "Policy", rules, "publish").await.unwrap();
+    assert_eq!(t.get("Policy", rules).await["published_on"], json!(day.to_string()), "published on the workspace's day");
+    let taken = uid(&t.insert(&rm, "RiskAcceptance", acceptance(ransom_id, (day + Duration::days(30)).to_string())).await["id"]);
+    t.act(&ra, "RiskAcceptance", taken, "accept_risk").await.unwrap();
+    assert_eq!(t.get("RiskAcceptance", taken).await["decided_on"], json!(day.to_string()), "decided on the workspace's day");
+    let on_day = t.k.insert(&rm, "ControlTest", obj(test(backups, day.to_string(), "Effective", proof.clone()))).await;
+    assert!(on_day.is_ok(), "a test on the workspace's day ({day}): {:?}", on_day.err());
+    refused(t.k.insert(&rm, "ControlTest", obj(test(backups, (day + Duration::days(1)).to_string(), "Effective", proof))).await, "invalid", "today or before");
 }
