@@ -7,7 +7,7 @@
 
 use crate::{obj, tolerance};
 use async_trait::async_trait;
-use chrono::{NaiveDate, Utc};
+use chrono::NaiveDate;
 use ferrum_domain::util::{elevated, id, rows, s};
 use ferrum_kernel::{Ctx, Doc, DocHook, Error, HookCtx, Kernel, Result, Tx};
 use serde_json::{Value, json};
@@ -64,7 +64,7 @@ impl DocHook for RiskHook {
         }
         match s(doc, "treatment") {
             Some("Mitigate") if rows(doc, "controls").is_empty() => return Err(Error::field("controls", "mitigating names the controls that do it")),
-            Some("Accept") if n(doc, "current_score") > tolerance(hc.tx, hc.ctx.tenant).await? && !accepted(hc.tx, hc.ctx.tenant, id(doc, "id")).await? => {
+            Some("Accept") if n(doc, "current_score") > tolerance(hc.tx, hc.ctx.tenant).await? && !accepted(hc.tx, hc.ctx, id(doc, "id")).await? => {
                 return Err(Error::field("treatment", "a risk above the tolerance is accepted only with an approved acceptance"));
             }
             _ => {}
@@ -73,16 +73,15 @@ impl DocHook for RiskHook {
     }
 }
 
-/// Whether `risk` has an acceptance approved and not yet expired.
-async fn accepted(tx: &mut Tx, tenant: Uuid, risk: Option<Uuid>) -> Result<bool> {
+/// Whether `risk` has an acceptance approved and not yet expired on the workspace's day.
+async fn accepted(tx: &mut Tx, ctx: &Ctx, risk: Option<Uuid>) -> Result<bool> {
     let Some(risk) = risk else { return Ok(false) };
-    Ok(sqlx::query_scalar(
-        "select exists(select 1 from e_risk_acceptance where tenant_id = $1 and risk = $2 and status = 'Accepted' and expires_on >= current_date)",
-    )
-    .bind(tenant)
-    .bind(risk)
-    .fetch_one(&mut **tx)
-    .await?)
+    Ok(sqlx::query_scalar("select exists(select 1 from e_risk_acceptance where tenant_id = $1 and risk = $2 and status = 'Accepted' and expires_on >= $3)")
+        .bind(ctx.tenant)
+        .bind(risk)
+        .bind(ctx.today())
+        .fetch_one(&mut **tx)
+        .await?)
 }
 
 pub struct AcceptanceHook;
@@ -93,8 +92,8 @@ impl DocHook for AcceptanceHook {
         "grc.acceptance"
     }
 
-    async fn validate(&self, _hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
-        if s(doc, "status") == Some("Draft") && s(doc, "expires_on").is_some_and(|e| e <= Utc::now().date_naive().to_string().as_str()) {
+    async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
+        if s(doc, "status") == Some("Draft") && s(doc, "expires_on").is_some_and(|e| e <= hc.ctx.today().to_string().as_str()) {
             return Err(Error::field("expires_on", "is after today"));
         }
         Ok(())
@@ -105,7 +104,7 @@ impl DocHook for AcceptanceHook {
         let risk_id = id(doc, "risk").ok_or_else(|| Error::field("risk", "is required"))?;
         let system = elevated(hc.ctx);
         let approver = hc.ctx.is_admin || hc.ctx.roles.iter().any(|r| r == "Risk Approver");
-        let today = Utc::now().date_naive().to_string();
+        let today = hc.ctx.today().to_string();
         let values = match name {
             "accept_risk" | "reject_acceptance" => {
                 if !approver {
@@ -139,7 +138,7 @@ impl DocHook for AcceptanceHook {
 
 /// A risk whose acceptance ended, open again unless another acceptance still holds it.
 async fn reopen(k: &Kernel, ctx: &Ctx, tx: &mut Tx, risk: Uuid) -> Result<()> {
-    if !accepted(tx, ctx.tenant, Some(risk)).await? {
+    if !accepted(tx, ctx, Some(risk)).await? {
         let treatment: Option<String> = sqlx::query_scalar("select treatment from e_risk where tenant_id = $1 and id = $2")
             .bind(ctx.tenant)
             .bind(risk)

@@ -6,7 +6,7 @@
 
 use crate::{obj, test_every};
 use async_trait::async_trait;
-use chrono::{Duration, NaiveDate, Utc};
+use chrono::{Duration, NaiveDate};
 use ferrum_domain::util::{elevated, id, rows, s};
 use ferrum_kernel::{Ctx, Doc, DocHook, Error, HookCtx, Kernel, Result, Tx};
 use serde_json::json;
@@ -50,7 +50,7 @@ impl DocHook for TestHook {
     }
 
     async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
-        if s(doc, "tested_on").is_some_and(|d| d > Utc::now().date_naive().to_string().as_str()) {
+        if s(doc, "tested_on").is_some_and(|d| d > hc.ctx.today().to_string().as_str()) {
             return Err(Error::field("tested_on", "is today or before"));
         }
         let status: Option<String> = sqlx::query_scalar("select status from e_control where tenant_id = $1 and id = $2")
@@ -70,7 +70,7 @@ impl DocHook for TestHook {
 
     async fn after_save(&self, hc: &mut HookCtx<'_>, doc: &Doc, _old: Option<&Doc>) -> Result<()> {
         let Some(control) = id(doc, "control") else { return Ok(()) };
-        standing(hc.kernel, &elevated(hc.ctx), hc.tx, control, Utc::now().date_naive()).await
+        standing(hc.kernel, &elevated(hc.ctx), hc.tx, control, hc.ctx.today()).await
     }
 }
 
