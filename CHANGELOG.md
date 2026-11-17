@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.18
+
+Server only. Needs the same platform as 0.1.17. No interface or database change.
+
+- **"Today" is the workspace's day.** A policy published and an acceptance decided were dated on the UTC day; a control
+  test was refused as in the future, and a draft acceptance as expired, against the UTC day; whether an acceptance
+  still holds a risk was judged on the database's day, which is UTC; and the upkeep expired acceptances, marked
+  controls stale and findings overdue on the UTC day. A workspace east of UTC met yesterday's rules in the first hours
+  of its day, one west of UTC tomorrow's in its evenings. All are on the workspace's own day now.
+
 ## 0.1.17
 
 Needs the same platform as 0.1.16. No database change. Interface only, `ui/dist` rebuilt with Ferrum-Frontend `06bd1a2`.

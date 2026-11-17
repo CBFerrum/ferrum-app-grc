@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.1.17-7c3aed?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.1.18-7c3aed?style=flat-square)](CHANGELOG.md)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
 ![Rust](https://img.shields.io/badge/Rust-server-b7410e?style=flat-square&logo=rust)
@@ -44,7 +44,7 @@ what and until when. It ships no control frameworks: a control names the framewo
 
 | | |
 |---|---|
-| **Version** | 0.1.17 (platform `>=0.3.2, <0.4`) |
+| **Version** | 0.1.18 (platform `>=0.3.2, <0.4`) |
 | **Kind** | Own interface at `/grc/`, plus Ferrum's generic records screens for every entity |
 | **What it adds** | 7 entities and a settings record (Risk, Control, Control Test, Risk Acceptance, Policy, Policy Acknowledgement, Finding), 2 child tables, 3 roles, 1 menu module, 3 numbered record types |
 | **Depends on** | Ferrum core only |
@@ -333,6 +333,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 ### ✅ Recently shipped
 
+- [x] **0.1.18.** What is dated or checked "today" is on the workspace's day, not the UTC day.
 - [x] **0.1.17.** Rebuilt on Ferrum-Frontend 06bd1a2: its start through `mountApp`.
 - [x] **0.1.16.** Rebuilt on the tuned design system: better menu icons, a lighter first page, cleaner print.
 - [x] **0.1.15.** The redesigned interface with shaped loading, told-apart states and the work-home pattern.
