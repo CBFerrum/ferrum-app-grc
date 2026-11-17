@@ -19,7 +19,7 @@
 Ferrum Governance and Risk is for security, compliance and operations teams who run their risk register, control
 tests, policies and audit findings in spreadsheets and shared folders. It scores each risk three ways, ties it to
 the controls that keep it down, asks for evidence before a control counts as working, and records who accepted
-what and until when.
+what and until when. It ships no control frameworks: a control names the framework requirements it answers as text.
 
 [💡 Why](#-why-governance-and-risk) · [📸 Screenshots](#-screenshots) · [✨ Features](#-features) · [📊 Compare](#-how-it-compares) · [📍 Roadmap](#-roadmap) · [🚀 Install](#-install) · [🔧 Develop](#-develop)
 
@@ -44,7 +44,7 @@ what and until when.
 
 | | |
 |---|---|
-| **Version** | 0.1.16 (platform `>=0.3.2, <0.4`) |
+| **Version** | 0.1.17 (platform `>=0.3.2, <0.4`) |
 | **Kind** | Own interface at `/grc/`, plus Ferrum's generic records screens for every entity |
 | **What it adds** | 7 entities and a settings record (Risk, Control, Control Test, Risk Acceptance, Policy, Policy Acknowledgement, Finding), 2 child tables, 3 roles, 1 menu module, 3 numbered record types |
 | **Depends on** | Ferrum core only |
@@ -333,7 +333,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 ### ✅ Recently shipped
 
-- [x] **0.1.17.** Rebuilt on Ferrum-Frontend 06bd1a2: its start through `mountApp`, and no routes to the screens apps no longer have.
+- [x] **0.1.17.** Rebuilt on Ferrum-Frontend 06bd1a2: its start through `mountApp`.
 - [x] **0.1.16.** Rebuilt on the tuned design system: better menu icons, a lighter first page, cleaner print.
 - [x] **0.1.15.** The redesigned interface with shaped loading, told-apart states and the work-home pattern.
 - [x] **0.1.14.** Names of the models, fields and menus in Arabic and Hindi.

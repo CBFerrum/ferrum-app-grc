@@ -14,6 +14,3 @@
 - Its own: the five-by-five scores and levels, the tolerance, the checks between the three scores,
   control tests and their staleness, policy revisions and acknowledgements, findings, and all the
   code.
-
-The copy read is in `ERP/referance/grc/ciso-assistant` on the machine this was written on (sparse:
-`backend/core`).
