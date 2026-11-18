@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.6.0-7c3aed?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.7.0-7c3aed?style=flat-square)](CHANGELOG.md)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
 ![Rust](https://img.shields.io/badge/Rust-server-b7410e?style=flat-square&logo=rust)
@@ -44,9 +44,9 @@ what and until when. It ships no control frameworks: a control names the framewo
 
 | | |
 |---|---|
-| **Version** | 0.6.0 (platform `>=0.4.0, <0.5`) |
+| **Version** | 0.7.0 (platform `>=0.4.0, <0.5`) |
 | **Kind** | Own interface at `/grc/`, plus Ferrum's generic records screens for every entity |
-| **What it adds** | 8 entities and a settings record (Risk, Control, Control Test, Risk Acceptance, Policy, Policy Acknowledgement, Attestation, Finding), 3 child tables, 3 roles, 1 menu module, 3 numbered record types |
+| **What it adds** | 10 entities and a settings record (Risk, Control, Control Test, Framework, Requirement, Risk Acceptance, Policy, Policy Acknowledgement, Attestation, Finding), 4 child tables, 3 roles, 1 menu module, 3 numbered record types |
 | **Depends on** | Ferrum core only |
 | **Works with** | The Ferrum assistant, audit trail, notifications and Studio; no other app is required |
 | **Languages** | English, Arabic (right to left), Hindi; a workspace can change any interface word |
@@ -167,6 +167,46 @@ what and until when. It ships no control frameworks: a control names the framewo
 - **Stale tests.** A test is current for the number of days in the settings (default 365). Upkeep marks a control
   whose latest test has gone stale as no longer effective, so it appears in "Controls to test".
 
+### 📚 Frameworks and requirements
+
+- **Framework.** A set of requirements the organisation answers to: a unique name, edition, publisher, source
+  link, description, and a switch to turn it off (its requirements can then not be newly mapped; mappings already
+  made stay).
+- **Requirement.** One requirement of a framework, or a heading that groups others (Assessable off): a reference
+  unique in its framework, a title, text, and the reference it sits **Under**. The tree is by reference, so a sheet
+  can bring a framework in: parents first; a child before its parent comes back in the import's errors. Nothing
+  can sit under itself, and a requirement that a control maps or that others sit under keeps its framework and
+  reference (its words may change).
+- **A control's requirements.** A table on the control: each requirement once, never a heading, never one of a
+  framework switched off. The old References field stays for free notes.
+- **Shipped.** `grc_lib_nist_csf`: the functions and categories of the NIST Cybersecurity Framework 2.0,
+  identifiers and titles, from NIST's public-domain catalog. Install it in a workspace as any package.
+  Frameworks whose text belongs to their publishers are not shipped: bring them in from a sheet under your own
+  licence.
+
+#### Writing a framework library
+
+A library is a package that depends on `grc` and carries only `seed:` records. Seeds are made once by their key,
+and a workspace's edits to them stay. Publish one only for a framework whose terms allow it, and say those terms in
+its `description` and `source_url`.
+
+```yaml
+package: grc_lib_example
+version: 0.1.0
+label: "Example framework"
+description: "A made-up framework, and the terms it may be copied under"
+depends: [grc]
+seed:
+  - entity: Framework
+    key: [framework_name]
+    records: [{framework_name: Example Framework, edition: "1"}]
+  - entity: Requirement
+    key: [framework, ref]
+    records:
+      - {framework: "@Framework:framework_name=Example Framework", ref: "1", title: Governance, assessable: false, sort_order: 1}
+      - {framework: "@Framework:framework_name=Example Framework", ref: "1.1", title: A policy exists, parent_ref: "1", sort_order: 2}
+```
+
 ### 📜 Policies
 
 - **Policy.** A unique title, owner, text (markdown), a review-by date and a state (Draft, Published, Retired).
@@ -272,7 +312,9 @@ Each person acknowledges each revision once. New text means a new revision and a
 | Entity | What it is | Key fields or states |
 |---|---|---|
 | **Risk** | Something that could go wrong | Number, title, category, owner, three likelihood and impact pairs, three scores, level, treatment, controls, review by |
-| **Control** | What keeps a risk down | Name, category, owner, status (Planned, In Place, Retired), references, last tested on, last result, effective |
+| **Control** | What keeps a risk down | Name, category, owner, status (Planned, In Place, Retired), references, requirements, last tested on, last result, effective |
+| **Framework** | A set of requirements | Name, edition, publisher, source link, description, disabled |
+| **Requirement** | One requirement or heading | Framework, reference, title, text, under, assessable, sort order |
 | **Control Test** | A test on a day | Control, tested on, tester, result, evidence rows, notes |
 | **Risk Acceptance** | A risk taken on for a time | Number, risk, justification, expires on, status, approver, decided on |
 | **Policy** | What people follow | Title, owner, text, status, revision, published text, published on, review by |
@@ -334,7 +376,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 | Self-hosted | ✅ | ❌ | ✅ | 🟡⁵ | ❌ | ✅ |
 | Open source | ✅ | ❌ | ❌ | ❌ | ❌ | 🟡⁶ |
 
-¹ A control names the requirements it answers by identifier, as text. There is no framework library.
+¹ Frameworks and requirements as records, mapped from controls; one library shipped (NIST CSF 2.0 functions and categories); no mapping between frameworks.
 
 ² Steps with owners and days, and a required retest; no reminders or approval per step.
 ³ The home page lists queues; there is no heat map or shipped report.
@@ -356,7 +398,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 ### 🚧 Where the leaders are still ahead
 
-- 📚 **Framework libraries** with requirement mapping and assessment of coverage across frameworks.
+- 📚 **More framework libraries**, mapping between frameworks, and assessment of coverage across them.
 - 🤖 **Automated evidence** and continuous control monitoring from cloud, identity, HR and code systems.
 - 🧑‍⚖️ **Audit engagements** with an auditor portal, request lists and sampling.
 - 🏢 **Vendor risk**, business continuity and incident registers.
@@ -370,6 +412,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 ### ✅ Recently shipped
 
+- [x] **0.7.0.** Frameworks and requirements as records, controls mapped to them, libraries as packages of seed records.
 - [x] **0.6.0.** A finding's fix as steps with owners and days, and a retest of its control before it closes.
 - [x] **0.5.0.** The matrix as settings: its size and the levels' bands, risks re-levelled when they change.
 - [x] **0.4.0.** Policies ask an audience role to acknowledge each revision by a day, remind them, and list who
@@ -388,7 +431,6 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 ### 🔜 Next up
 
-- [ ] **Framework libraries.** Frameworks and requirements mapped to controls, with coverage, because every audit asks for it.
 - [ ] **Compliance assessments** of a framework against the controls in place.
 - [ ] **Several approvers** on an acceptance.
 - [ ] **Reports**: risk heat map, control coverage, overdue findings and an audit export.

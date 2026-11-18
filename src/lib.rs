@@ -7,12 +7,15 @@
 //! * `controls`: tests of controls in place, effective results with evidence, standing that goes
 //!   stale; findings overdue when late, and closed saying how.
 //! * `policies`: revisions published with their text, and acknowledgements of a revision.
+//! * `frameworks`: requirements in a tree by reference, and the requirements a control answers.
 //!
-//! Adapted from CISO Assistant's risk scenarios, applied controls and risk acceptances (AGPL-3.0;
-//! docs/PROVENANCE.md). Hooks are registered per entity, so a workspace without the `grc` package
-//! never runs them. No framework's text is included, nor any certification claimed.
+//! Adapted from CISO Assistant's risk scenarios, applied controls, risk acceptances, frameworks and
+//! requirement nodes (AGPL-3.0; docs/PROVENANCE.md). Hooks are registered per entity, so a workspace
+//! without the `grc` package never runs them. No framework's text is in this code, nor any
+//! certification claimed: frameworks are data, a sheet or a library package of seed records.
 
 mod controls;
+mod frameworks;
 mod policies;
 mod risks;
 
@@ -42,6 +45,8 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("RiskAcceptance", Arc::new(risks::AcceptanceHook))
         .register("GrcSettings", Arc::new(risks::SettingsHook))
         .register("ControlTest", Arc::new(controls::TestHook))
+        .register("Control", Arc::new(frameworks::ControlHook))
+        .register("Requirement", Arc::new(frameworks::RequirementHook))
         .register("Finding", Arc::new(controls::FindingHook))
         .register("Policy", Arc::new(policies::PolicyHook));
 }
@@ -174,6 +179,20 @@ pub(crate) async fn tell(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A framework library is a package of seed records on `grc`: the README's example, and the ones shipped here.
+    #[test]
+    fn a_library_package_is_valid() {
+        let yaml = "package: grc_lib_example\nversion: 0.1.0\nlabel: Example framework\ndepends: [grc]\nseed:\n  - entity: Framework\n    key: [framework_name]\n    records: [{framework_name: Example Framework, edition: \"1\"}]\n  - entity: Requirement\n    key: [framework, ref]\n    records:\n      - {framework: \"@Framework:framework_name=Example Framework\", ref: \"1\", title: Governance, assessable: false, sort_order: 1}\n      - {framework: \"@Framework:framework_name=Example Framework\", ref: \"1.1\", title: A policy exists, parent_ref: \"1\", sort_order: 2}\n";
+        let example = ferrum_meta::catalog::load_embedded(&[("grc_lib_example", "package.yaml", yaml)]).expect("the example").remove(0);
+        let mut all = ferrum_domain::packages().expect("platform packages");
+        all.extend(packages().expect("app packages"));
+        all.push(example);
+        let catalog = ferrum_meta::Catalog::from_packages(all).unwrap_or_else(|e| panic!("{e}"));
+        let names = ["grc_lib_example", "grc_lib_nist_csf"].map(String::from).to_vec();
+        let schema = ferrum_meta::effective::build(&catalog, &catalog.closure(&names).unwrap(), &[], 1).unwrap_or_else(|e| panic!("{e}"));
+        assert!(schema.warnings.is_empty(), "{:?}", schema.warnings);
+    }
 
     #[test]
     fn levels_of_the_matrix() {

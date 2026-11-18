@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+Needs the same platform as 0.6.0. Package `grc` 0.6.0: entities Framework and Requirement, and a Requirements
+table on Control. New package `grc_lib_nist_csf` 0.1.0 (seed records only). Existing controls keep their
+References text; nothing converts it. `ui/dist` rebuilt for the new names.
+
+- **Frameworks and requirements are records.** Requirements form a tree by reference, unique in their framework;
+  a sheet brings them in parents first; nothing sits under itself; one in use keeps its reference.
+- **A control maps the requirements it answers,** each once, never a heading, never one of a framework switched off.
+- **Libraries are data.** A library is a package of seed records on `grc` (README, "Writing a framework library").
+  Shipped: the NIST Cybersecurity Framework 2.0's functions and categories, identifiers and titles, public domain.
+
 ## 0.6.0
 
 Needs the same platform as 0.5.0. Package `grc` 0.5.0: a child table of steps on Finding (`FindingStep`) and two

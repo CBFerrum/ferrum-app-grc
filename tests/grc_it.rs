@@ -59,6 +59,27 @@ fn refused<V: std::fmt::Debug>(r: Result<V, Error>, kind: &str, says: &str) {
     assert!(ok && msg.contains(says), "expected {kind} saying {says:?}, got {msg}");
 }
 
+/// A framework library as a workspace's people would write one: a package with seed records only.
+const EXAMPLE_LIBRARY: &str = r#"package: grc_lib_example
+version: 0.1.0
+label: "Example framework"
+description: "A made-up framework for the suite"
+depends: [grc]
+seed:
+  - entity: Framework
+    key: [framework_name]
+    records: [{framework_name: Example Framework, edition: "1"}]
+  - entity: Requirement
+    key: [framework, ref]
+    records:
+      - {framework: "@Framework:framework_name=Example Framework", ref: "1", title: Governance, assessable: false, sort_order: 1}
+      - {framework: "@Framework:framework_name=Example Framework", ref: "1.1", title: A policy exists, parent_ref: "1", sort_order: 2}
+"#;
+
+fn example_library() -> ferrum_meta::Package {
+    ferrum_meta::catalog::load_embedded(&[("grc_lib_example", "package.yaml", EXAMPLE_LIBRARY)]).expect("the example library").remove(0)
+}
+
 #[test]
 fn a_security_programme() {
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(16 << 20).build().unwrap();
@@ -71,6 +92,7 @@ async fn scenario() {
     sqlx::raw_sql("drop schema if exists public cascade; create schema public;").execute(&db.pool).await.expect("reset");
     let mut packages = ferrum_domain::packages().expect("platform packages");
     packages.extend(ferrum_app_grc::packages().expect("app packages"));
+    packages.push(example_library());
     let catalog = Catalog::from_packages(packages).expect("catalog");
     let mut hooks = HookRegistry::default();
     ferrum_domain::register(&mut hooks);
@@ -568,6 +590,69 @@ async fn scenario() {
     assert_eq!((pat2_doc["status"].as_str(), pat2_doc["overdue"].as_bool()), (Some("Acknowledged"), Some(false)));
     t.act(&rm, "Policy", handbook, "retire").await.unwrap();
     assert_eq!(t.get("PolicyAttestation", joe2).await["status"], "Withdrawn");
+
+    // ───────────── frameworks and requirements ─────────────
+    let fw = |name: &str| json!({"framework_name": name, "edition": "2026", "publisher": "Secure Co"});
+    let ours = uid(&t.insert(&rm, "Framework", fw("Our baseline")).await["id"]);
+    let req = |framework: Uuid, r: &str, under: Option<&str>, assessable: bool| json!({"framework": framework.to_string(), "ref": r, "title": format!("Requirement {r}"), "parent_ref": under, "assessable": assessable});
+    // A framework's requirements form a tree.
+    let heading = uid(&t.insert(&rm, "Requirement", req(ours, "A", None, false)).await["id"]);
+    let a1 = uid(&t.insert(&rm, "Requirement", req(ours, "A.1", Some("A"), true)).await["id"]);
+    let a2 = uid(&t.insert(&rm, "Requirement", req(ours, "A.2", Some("A"), true)).await["id"]);
+    refused(t.k.insert(&rm, "Requirement", obj(req(ours, "B.1", Some("B"), true))).await, "invalid", "bring parents in first");
+    // A reference is unique in its framework, and may repeat in another.
+    let theirs = uid(&t.insert(&rm, "Framework", fw("Supplier code")).await["id"]);
+    assert!(t.k.insert(&rm, "Requirement", obj(req(ours, "A.1", Some("A"), true))).await.is_err(), "A.1 twice in one framework");
+    t.insert(&rm, "Requirement", req(theirs, "A", None, true)).await;
+    // Nothing sits under itself.
+    let x = uid(&t.insert(&rm, "Requirement", req(theirs, "X", None, true)).await["id"]);
+    t.insert(&rm, "Requirement", req(theirs, "Y", Some("X"), true)).await;
+    refused(t.set(&rm, "Requirement", x, json!({"parent_ref": "Y"})).await, "invalid", "under itself");
+    refused(t.set(&rm, "Requirement", x, json!({"parent_ref": "X"})).await, "invalid", "is another requirement");
+    // A sheet brings requirements in, parents first.
+    let sheet = |order: &[&str]| order.iter().map(|r| req(theirs, r, r.rsplit_once('.').map(|(p, _)| p), true)).collect::<Vec<_>>();
+    let (made, failed) = t.k.import_rows(&rm, "Requirement", &sheet(&["C", "C.1", "C.2", "C.1.1", "C.1.2"])).await.unwrap();
+    assert_eq!((made.len(), failed.len()), (5, 0), "{failed:?}");
+    let (made, failed) = t.k.import_rows(&rm, "Requirement", &sheet(&["D.1", "D"])).await.unwrap();
+    assert_eq!(made.len(), 1);
+    assert_eq!(failed[0]["row"], 0);
+    assert!(failed[0].to_string().contains("parent_ref"), "{failed:?}");
+    // A control answers requirements: each once, never a heading, never one of a framework switched off.
+    let maps = |ids: &[Uuid]| json!({"requirements": ids.iter().map(|i| json!({"requirement": i.to_string()})).collect::<Vec<_>>()});
+    t.set(&rm, "Control", mfa, maps(&[a1, a2])).await.expect("two requirements answered");
+    refused(t.set(&rm, "Control", backups, maps(&[a1, a1])).await, "invalid", "A.1 is listed twice");
+    refused(t.set(&rm, "Control", backups, maps(&[heading])).await, "invalid", "A is a heading");
+    let off = uid(&t.insert(&rm, "Framework", json!({"framework_name": "Retired code", "disabled": true})).await["id"]);
+    let z = uid(&t.insert(&rm, "Requirement", req(off, "Z", None, true)).await["id"]);
+    refused(t.set(&rm, "Control", backups, maps(&[z])).await, "invalid", "switched off");
+    t.set(&rm, "Framework", ours, json!({"disabled": true})).await.unwrap();
+    t.set(&rm, "Control", mfa, json!({"description": "Every sign-in"})).await.expect("rows already there stay");
+    assert_eq!(t.get("Control", mfa).await["requirements"].as_array().unwrap().len(), 2);
+    t.set(&rm, "Framework", ours, json!({"disabled": false})).await.unwrap();
+    // A requirement in use keeps its framework and reference.
+    refused(t.set(&rm, "Requirement", a1, json!({"ref": "A.9"})).await, "invalid", "keeps its framework and reference");
+    refused(t.set(&rm, "Requirement", heading, json!({"ref": "AA"})).await, "invalid", "keeps its framework and reference");
+    t.set(&rm, "Requirement", a2, json!({"title": "Second, reworded"})).await.expect("its words may change");
+    // A library installs its framework once.
+    for _ in 0..2 {
+        t.k.install_packages(tenant, &["grc_lib_example".to_string()]).await.expect("the library");
+    }
+    let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
+    let seeded: (i64, i64) = sqlx::query_as(
+        "select (select count(*) from e_framework where tenant_id = $1 and framework_name = 'Example Framework'), \
+         (select count(*) from e_requirement r join e_framework f on f.tenant_id = r.tenant_id and f.id = r.framework \
+          where r.tenant_id = $1 and f.framework_name = 'Example Framework')",
+    )
+    .bind(t.tenant)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(seeded, (1, 2), "made once");
+    // Who may: a Risk Approver reads, and neither creates nor imports.
+    refused(t.k.insert(&ra, "Framework", obj(fw("Mine"))).await, "forbidden", "");
+    refused(t.k.import_rows(&ra, "Requirement", &sheet(&["E"])).await, "forbidden", "");
+    assert!(!t.k.list(&ra, "Requirement", &ListQuery::default()).await.unwrap().rows.is_empty());
 
     // ───────────── who may do what ─────────────
     refused(t.k.insert(&ra, "Risk", obj(risk("Mine", "ra@secure.test", [1, 1, 1, 1, 1, 1], "Open", json!([])))).await, "forbidden", "");
