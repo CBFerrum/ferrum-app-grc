@@ -4,11 +4,16 @@
   module: grc
   description: "How much risk the organisation tolerates, and how often controls are tested."
   fields:
-    - {name: tolerance, type: int, required: true, default: 6, description: "The highest score (likelihood times impact, out of 25) accepted without a risk acceptance"}
+    - {name: tolerance, type: int, required: true, default: 6, description: "The highest score (likelihood times impact) accepted without a risk acceptance"}
     - {name: test_every_days, type: int, required: true, default: 365, description: "A control's test is current this many days"}
     - {name: reminder_days, type: int, default: 14, min: 0, max: 365, description: "Days before an acceptance expires and before a finding is due that their people are reminded; 0 = no reminders"}
+    - {name: scale, type: int, required: true, default: 5, min: 2, max: 10, description: "Likelihood and impact are each scored from 1 to this"}
+    - {name: medium_from, type: int, required: true, default: 5, min: 2, description: "A current score of this or more is Medium"}
+    - {name: high_from, type: int, required: true, default: 10, min: 3, description: "A current score of this or more is High"}
+    - {name: critical_from, type: int, required: true, default: 17, min: 4, description: "A current score of this or more is Critical"}
   form:
     - {label: Appetite, fields: [tolerance, test_every_days]}
+    - {label: Matrix, fields: [scale, medium_from, high_from, critical_from]}
     - {label: Reminders, fields: [reminder_days]}
 
 - name: RiskControl
@@ -23,7 +28,7 @@
   kind: master
   module: grc
   title_field: title
-  description: Something that could go wrong, scored before controls (inherent), with them (current) and as targeted (residual), each likelihood times impact on a five-by-five matrix.
+  description: Something that could go wrong, scored before controls (inherent), with them (current) and as targeted (residual), each likelihood times impact on the workspace's matrix.
   fields:
     - {name: title, type: data, required: true, in_list: true}
     - {name: description, type: text}

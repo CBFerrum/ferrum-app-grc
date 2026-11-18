@@ -1,7 +1,7 @@
 //! A security programme (FERRUM-ECOSYSTEM-014) against a real PostgreSQL
 //! (`FERRUM_GRC_TEST_DATABASE_URL`, default `postgres://ferrum:ferrum@localhost:5432/ferrum_grc_test`;
 //! reset first): risks scored inherent, current and residual, never worse with controls or as
-//! targeted; mitigation naming its controls; a risk above the tolerance accepted only by a risk
+//! targeted on the workspace's matrix; mitigation naming its controls; a risk above the tolerance accepted only by a risk
 //! approver who does not own it, until the acceptance expires; controls tested with evidence, their
 //! standing going stale; policies published by revision and acknowledged again when they change;
 //! findings overdue and closed saying how; a decided acceptance kept as decided; people told, once, before an
@@ -140,6 +140,36 @@ async fn scenario() {
         json!({"title": title, "owner": owner, "inherent_likelihood": scores[0], "inherent_impact": scores[1], "current_likelihood": scores[2], "current_impact": scores[3],
                "residual_likelihood": scores[4], "residual_impact": scores[5], "treatment": treatment, "controls": controls})
     };
+    let sql = |q: &'static str, id: Uuid| {
+        let k = k.clone();
+        async move {
+            let mut tx = k.db.tenant_tx(tenant).await.unwrap();
+            sqlx::query(q).bind(tenant).bind(id).execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+        }
+    };
+    let matrix = uid(&t.k.list(&rm, "GrcSettings", &ListQuery::default()).await.unwrap().rows[0]["id"]);
+    // A three-point scale.
+    let three = json!({"scale": 3, "medium_from": 3, "high_from": 5, "critical_from": 8, "tolerance": 2});
+    t.set(&rm, "GrcSettings", matrix, three).await.expect("a three-point matrix");
+    refused(t.k.insert(&rm, "Risk", obj(risk("Flood", "cfo@secure.test", [4, 3, 3, 3, 1, 1], "Open", json!([])))).await, "invalid", "from 1 to 3");
+    let flood = uid(&t.insert(&rm, "Risk", risk("Flood", "cfo@secure.test", [3, 3, 3, 3, 1, 1], "Open", json!([]))).await["id"]);
+    assert_eq!(t.get("Risk", flood).await["level"], "Critical", "9 on a three-point scale");
+    let spill = uid(&t.insert(&rm, "Risk", risk("Coffee spill", "cfo@secure.test", [1, 2, 1, 2, 1, 1], "Open", json!([]))).await["id"]);
+    assert_eq!(t.get("Risk", spill).await["level"], "Low");
+    // Bands in the wrong order are refused; so is a tolerance above the scale squared.
+    refused(t.set(&rm, "GrcSettings", matrix, json!({"high_from": 3})).await, "invalid", "rising order");
+    refused(t.set(&rm, "GrcSettings", matrix, json!({"critical_from": 10})).await, "invalid", "rising order");
+    refused(t.set(&rm, "GrcSettings", matrix, json!({"tolerance": 10})).await, "invalid", "a score on the matrix");
+    // A workspace that changes nothing keeps today's levels: settings saved before this release (the matrix's columns
+    // empty) score on five points with today's bands, which the upkeep brings every risk back to.
+    sql(
+        "update e_grc_settings set scale = null, medium_from = null, high_from = null, critical_from = null, tolerance = 6 where tenant_id = $1 and id = $2",
+        matrix,
+    )
+    .await;
+    ferrum_app_grc::maintenance_on(&k, tenant, today).await.unwrap();
+    assert_eq!(t.get("Risk", flood).await["level"], "Medium", "9 on five points");
     refused(t.k.insert(&rm, "Risk", obj(risk("Bad", "cfo@secure.test", [6, 3, 3, 3, 2, 2], "Open", json!([])))).await, "invalid", "from 1 to 5");
     refused(t.k.insert(&rm, "Risk", obj(risk("Worse", "cfo@secure.test", [2, 2, 3, 3, 2, 2], "Open", json!([])))).await, "invalid", "do not make a risk worse");
     refused(
@@ -162,6 +192,27 @@ async fn scenario() {
     let ransom_id = uid(&ransom["id"]);
     let small = uid(&t.insert(&rm, "Risk", risk("Printer jams", "cfo@secure.test", [2, 3, 2, 3, 1, 1], "Accept", json!([]))).await["id"]);
     assert_eq!(t.get("Risk", small).await["level"], "Medium", "6, at the tolerance: accepted without an acceptance");
+    // The scale does not shrink below a score in use.
+    let five = |high: i64| json!({"scale": 5, "medium_from": 5, "high_from": high, "critical_from": 17});
+    refused(
+        t.set(&rm, "GrcSettings", matrix, json!({"scale": 4, "medium_from": 5, "high_from": 10, "critical_from": 16})).await,
+        "invalid",
+        "1 risks are scored above it",
+    );
+    assert_eq!(t.get("Risk", ransom_id).await["inherent_likelihood"], 5, "unchanged");
+    // Changing the bands re-levels every risk at once.
+    let fraud = uid(&t.insert(&rm, "Risk", risk("Invoice fraud", "cfo@secure.test", [5, 2, 5, 2, 1, 1], "Open", json!([]))).await["id"]);
+    assert_eq!(t.get("Risk", fraud).await["level"], "High");
+    t.set(&rm, "GrcSettings", matrix, five(12)).await.unwrap();
+    assert_eq!(t.get("Risk", fraud).await["level"], "Medium", "10, below the new High, with no upkeep");
+    t.set(&rm, "GrcSettings", matrix, five(10)).await.unwrap();
+    assert_eq!((t.get("Risk", fraud).await["level"].as_str(), t.get("Risk", ransom_id).await["level"].as_str()), (Some("High"), Some("High")));
+    // The upkeep heals a level written under old bands.
+    sql("update e_risk set level = 'Low' where tenant_id = $1 and id = $2", fraud).await;
+    ferrum_app_grc::maintenance_on(&k, tenant, today).await.unwrap();
+    assert_eq!(t.get("Risk", fraud).await["level"], "High");
+    // Who may change the matrix: not a Risk Approver.
+    refused(t.set(&ra, "GrcSettings", matrix, five(12)).await, "forbidden", "");
     refused(t.set(&rm, "Risk", ransom_id, json!({"treatment": "Accept"})).await, "invalid", "only with an approved acceptance");
 
     // ───────────── accepting a risk ─────────────

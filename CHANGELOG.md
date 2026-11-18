@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0
+
+Needs the same platform as 0.4.0. Package `grc` 0.4.0: four Governance Settings fields (`scale`, `medium_from`,
+`high_from`, `critical_from`). Settings saved before read the empty fields as five points with 5, 10 and 17,
+which are the levels of before, so no risk changes; the backfill `grc_matrix_defaults` writes those values in. `ui/dist` rebuilt for the new words.
+
+- **The matrix is the workspace's.** Likelihood and impact are scored from 1 to the scale (2 to 10), and the scores
+  at which a risk becomes Medium, High and Critical are settings. Bands must rise and stay on the matrix; the
+  tolerance must be a score on it; the scale cannot shrink below a score a risk holds (refused, never clamped).
+- **Re-levelled at once.** Saving new bands re-levels every risk in the same transaction; the upkeep heals a risk
+  saved under the old bands at the moment they changed.
+
 ## 0.4.0
 
 Needs the same platform as 0.3.0. Package `grc` 0.3.0: new entity Attestation (`PolicyAttestation`), two Policy

@@ -1,11 +1,11 @@
-//! Risks and their acceptance. A risk is scored three times on a five-by-five matrix: before
+//! Risks and their acceptance. A risk is scored three times on the workspace's matrix: before
 //! controls (inherent), with them (current), and as targeted (residual); controls never make it
 //! worse, nor does the target. Its level is the current score's. Mitigating means naming the
 //! controls; accepting a risk above the tolerance means an acceptance approved by a risk approver
 //! who does not own it, until it expires, when the risk is open again (CISO Assistant's risk
 //! scenarios and acceptances).
 
-use crate::{obj, tell, tolerance};
+use crate::{Matrix, matrix, obj, tell, tolerance};
 use async_trait::async_trait;
 use chrono::NaiveDate;
 use ferrum_domain::util::{elevated, id, rows, s};
@@ -13,13 +13,79 @@ use ferrum_kernel::{Ctx, Doc, DocHook, Error, HookCtx, Kernel, Result, Tx};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-/// The level of a score out of 25.
-pub(crate) fn level(score: i64) -> &'static str {
-    match score {
-        ..=4 => "Low",
-        5..=9 => "Medium",
-        10..=16 => "High",
-        _ => "Critical",
+/// The level of a score on matrix `m`.
+pub(crate) fn level(score: i64, m: &Matrix) -> &'static str {
+    if score >= m.critical_from {
+        "Critical"
+    } else if score >= m.high_from {
+        "High"
+    } else if score >= m.medium_from {
+        "Medium"
+    } else {
+        "Low"
+    }
+}
+
+/// Every risk whose stored level is not its current score's band under the workspace's bands, re-levelled.
+pub(crate) async fn reband(k: &Kernel, ctx: &Ctx, tx: &mut Tx) -> Result<()> {
+    let m = matrix(tx, ctx.tenant).await?;
+    let wrong: Vec<(Uuid, String)> = sqlx::query_as(
+        "select id, band from (select id, level, case when current_score >= $2 then 'Critical' when current_score >= $3 then 'High' \
+         when current_score >= $4 then 'Medium' else 'Low' end as band from e_risk where tenant_id = $1) r \
+         where level is distinct from band order by id for update",
+    )
+    .bind(ctx.tenant)
+    .bind(m.critical_from)
+    .bind(m.high_from)
+    .bind(m.medium_from)
+    .fetch_all(&mut **tx)
+    .await?;
+    for (risk, band) in wrong {
+        k.set_values_tx(ctx, tx, "Risk", risk, obj(json!({"level": band}))).await?;
+    }
+    Ok(())
+}
+
+/// The matrix's settings: a scale from 2 to 10, bands rising within it, a tolerance on it, and never a scale below a
+/// score in use. Saved, every risk is re-levelled in the same transaction.
+pub struct SettingsHook;
+
+#[async_trait]
+impl DocHook for SettingsHook {
+    fn name(&self) -> &'static str {
+        "grc.settings"
+    }
+
+    async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
+        let d = Matrix::default();
+        let v = |k: &str, or: i64| doc.get(k).and_then(Value::as_i64).unwrap_or(or);
+        let (scale, medium, high, critical) =
+            (v("scale", d.scale), v("medium_from", d.medium_from), v("high_from", d.high_from), v("critical_from", d.critical_from));
+        if !(2..=10).contains(&scale) {
+            return Err(Error::field("scale", "is from 2 to 10"));
+        }
+        if !(1 < medium && medium < high && high < critical && critical <= scale * scale) {
+            return Err(Error::field("medium_from", "the levels start in rising order, the last no higher than the scale squared"));
+        }
+        if !(1..=scale * scale).contains(&v("tolerance", 6)) {
+            return Err(Error::field("tolerance", "is a score on the matrix"));
+        }
+        let above: i64 = sqlx::query_scalar(
+            "select count(*) from e_risk where tenant_id = $1 and greatest(inherent_likelihood, inherent_impact, current_likelihood, current_impact, \
+             residual_likelihood, residual_impact) > $2",
+        )
+        .bind(hc.ctx.tenant)
+        .bind(scale)
+        .fetch_one(&mut **hc.tx)
+        .await?;
+        if above > 0 {
+            return Err(Error::field("scale", format!("{above} risks are scored above it: lower them first")));
+        }
+        Ok(())
+    }
+
+    async fn after_save(&self, hc: &mut HookCtx<'_>, _doc: &Doc, _old: Option<&Doc>) -> Result<()> {
+        reband(hc.kernel, &elevated(hc.ctx), hc.tx).await
     }
 }
 
@@ -39,21 +105,23 @@ impl DocHook for RiskHook {
         &["inherent_score", "current_score", "residual_score", "level"]
     }
 
-    async fn before_validate(&self, _hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+    async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+        let m = matrix(hc.tx, hc.ctx.tenant).await?;
         let score = |l: &str, i: &str| n(doc, l) * n(doc, i);
         let (inherent, current, residual) =
             (score("inherent_likelihood", "inherent_impact"), score("current_likelihood", "current_impact"), score("residual_likelihood", "residual_impact"));
         doc.insert("inherent_score".into(), json!(inherent));
         doc.insert("current_score".into(), json!(current));
         doc.insert("residual_score".into(), json!(residual));
-        doc.insert("level".into(), json!(level(current)));
+        doc.insert("level".into(), json!(level(current, &m)));
         Ok(())
     }
 
     async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
+        let scale = matrix(hc.tx, hc.ctx.tenant).await?.scale;
         for k in ["inherent_likelihood", "inherent_impact", "current_likelihood", "current_impact", "residual_likelihood", "residual_impact"] {
-            if !(1..=5).contains(&n(doc, k)) {
-                return Err(Error::field(k, "is from 1 to 5"));
+            if !(1..=scale).contains(&n(doc, k)) {
+                return Err(Error::field(k, format!("is from 1 to {scale}")));
             }
         }
         if n(doc, "current_score") > n(doc, "inherent_score") {

@@ -40,6 +40,7 @@ pub fn register(hooks: &mut HookRegistry) {
     hooks
         .register("Risk", Arc::new(risks::RiskHook))
         .register("RiskAcceptance", Arc::new(risks::AcceptanceHook))
+        .register("GrcSettings", Arc::new(risks::SettingsHook))
         .register("ControlTest", Arc::new(controls::TestHook))
         .register("Finding", Arc::new(controls::FindingHook))
         .register("Policy", Arc::new(policies::PolicyHook));
@@ -67,6 +68,7 @@ async fn upkeep(k: &Kernel, tenant: Uuid, on: Option<NaiveDate>) -> Result<()> {
     let ctx = Ctx::system(tenant, schema);
     let today = on.unwrap_or_else(|| ctx.today());
     let mut tx = k.db.tenant_tx(tenant).await?;
+    risks::reband(k, &ctx, &mut tx).await?;
     risks::expire(k, &ctx, &mut tx, today).await?;
     controls::upkeep(k, &ctx, &mut tx, today).await?;
     let days = reminder_days(&mut tx, tenant).await?;
@@ -89,6 +91,37 @@ pub(crate) async fn tolerance(tx: &mut Tx, tenant: Uuid) -> Result<i64> {
     let t: Option<i64> =
         sqlx::query_scalar("select tolerance from e_grc_settings where tenant_id = $1 limit 1").bind(tenant).fetch_optional(&mut **tx).await?.flatten();
     Ok(t.unwrap_or(6))
+}
+
+/// The workspace's matrix: each axis scored from 1 to `scale`, and the current scores at which a risk becomes
+/// Medium, High and Critical. Settings saved before the matrix existed, or none: five points with 5, 10 and 17.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Matrix {
+    pub scale: i64,
+    pub medium_from: i64,
+    pub high_from: i64,
+    pub critical_from: i64,
+}
+
+impl Default for Matrix {
+    fn default() -> Self {
+        Matrix { scale: 5, medium_from: 5, high_from: 10, critical_from: 17 }
+    }
+}
+
+pub(crate) async fn matrix(tx: &mut Tx, tenant: Uuid) -> Result<Matrix> {
+    let row: Option<(Option<i64>, Option<i64>, Option<i64>, Option<i64>)> =
+        sqlx::query_as("select scale::bigint, medium_from::bigint, high_from::bigint, critical_from::bigint from e_grc_settings where tenant_id = $1 limit 1")
+            .bind(tenant)
+            .fetch_optional(&mut **tx)
+            .await?;
+    let d = Matrix::default();
+    Ok(row.map_or(d, |(s, m, h, c)| Matrix {
+        scale: s.unwrap_or(d.scale),
+        medium_from: m.unwrap_or(d.medium_from),
+        high_from: h.unwrap_or(d.high_from),
+        critical_from: c.unwrap_or(d.critical_from),
+    }))
 }
 
 /// How many days a control's test is current.
@@ -144,9 +177,17 @@ mod tests {
 
     #[test]
     fn levels_of_the_matrix() {
-        use risks::level;
+        let level = |s| risks::level(s, &Matrix::default());
         assert_eq!((level(1), level(4), level(5), level(9)), ("Low", "Low", "Medium", "Medium"));
         assert_eq!((level(10), level(16), level(20), level(25)), ("High", "High", "Critical", "Critical"));
+    }
+
+    #[test]
+    fn levels_follow_the_bands() {
+        let m = Matrix { scale: 3, medium_from: 3, high_from: 5, critical_from: 8 };
+        let level = |s| risks::level(s, &m);
+        assert_eq!((level(1), level(2), level(3), level(4)), ("Low", "Low", "Medium", "Medium"));
+        assert_eq!((level(5), level(7), level(8), level(9)), ("High", "High", "Critical", "Critical"));
     }
 
     #[test]
