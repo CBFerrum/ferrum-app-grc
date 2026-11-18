@@ -34,6 +34,11 @@ const incidents = [
   { id: "i2", title: "Customer list leaked", detected_at: "2026-11-15T08:00:00Z", status: "Contained", notice_overdue: true },
 ];
 
+const plans = [
+  { id: "p1", plan_name: "Finance recovery", status: "In Force", current: false, last_tested_on: "2025-10-01" },
+  { id: "p2", plan_name: "Archive recovery", status: "In Force", current: false, last_tested_on: null },
+];
+
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   (globalThis as { matchMedia?: unknown }).matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
@@ -46,6 +51,7 @@ beforeEach(() => {
       if (path === "/api/meta") return json({ entities: [], modules: [], reports: [] });
       if (path === "/api/meta/Policy") return json(policyMeta(write));
       if (path === "/api/v1/PolicyAttestation") return json({ rows: asks, total: asks.length });
+      if (path === "/api/v1/ContinuityPlan") return json({ rows: plans, total: plans.length });
       if (path === "/api/v1/Incident") return json({ rows: incidents, total: incidents.length });
       if (path === "/api/v1/ComplianceAssessment") return json({ rows: assessments, total: assessments.length });
       return json({ rows: [], total: 0 });
@@ -104,6 +110,15 @@ describe("the home", () => {
     expect(text.indexOf("Customer list leaked")).toBeLessThan(text.indexOf("Mail outage"));
     expect(text.indexOf("Incidents")).toBeLessThan(text.indexOf("Open findings"));
     expect(links).toContain("/e/Incident/i2");
+  });
+
+  it("the home page lists plans that need a test", async () => {
+    write = "all";
+    const { text, links } = await home();
+    expect(text).toContain("Plans to test");
+    expect(text).toContain("Finance recovery");
+    expect(text).toContain("never tested");
+    expect(links).toContain("/e/ContinuityPlan/p2");
   });
 
   it("a Risk Manager's home names who has not acknowledged", async () => {

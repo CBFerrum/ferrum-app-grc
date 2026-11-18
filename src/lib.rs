@@ -8,6 +8,7 @@
 //!   stale; findings overdue when late, and closed saying how.
 //! * `policies`: revisions published with their text, and acknowledgements of a revision.
 //! * `frameworks`: requirements in a tree by reference, and the requirements a control answers.
+//! * `continuity`: processes with recovery objectives, plans, and plan tests that go stale.
 //! * `incidents`: incidents with the notices their rules ask for, and owners told when one is overdue.
 //! * `assessments`: a framework assessed requirement by requirement, beside what the controls say, and coverage.
 //!
@@ -17,6 +18,7 @@
 //! certification claimed: frameworks are data, a sheet or a library package of seed records.
 
 mod assessments;
+mod continuity;
 mod controls;
 mod frameworks;
 mod incidents;
@@ -53,6 +55,9 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("Requirement", Arc::new(frameworks::RequirementHook))
         .register("ComplianceAssessment", Arc::new(assessments::AssessmentHook))
         .register("Incident", Arc::new(incidents::IncidentHook))
+        .register("BusinessProcess", Arc::new(continuity::ProcessHook))
+        .register("ContinuityPlan", Arc::new(continuity::PlanHook))
+        .register("PlanTest", Arc::new(continuity::PlanTestHook))
         .register("Finding", Arc::new(controls::FindingHook))
         .register("Policy", Arc::new(policies::PolicyHook));
 }
@@ -82,6 +87,7 @@ async fn upkeep(k: &Kernel, tenant: Uuid, on: Option<NaiveDate>) -> Result<()> {
     risks::reband(k, &ctx, &mut tx).await?;
     risks::expire(k, &ctx, &mut tx, today).await?;
     controls::upkeep(k, &ctx, &mut tx, today).await?;
+    continuity::upkeep(k, &ctx, &mut tx, today).await?;
     let days = reminder_days(&mut tx, tenant).await?;
     if days > 0 {
         risks::remind(k, &ctx, &mut tx, today, days).await?;

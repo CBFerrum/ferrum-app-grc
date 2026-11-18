@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.10.0-7c3aed?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.11.0-7c3aed?style=flat-square)](CHANGELOG.md)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
 ![Rust](https://img.shields.io/badge/Rust-server-b7410e?style=flat-square&logo=rust)
@@ -44,9 +44,9 @@ what and until when. It ships no control frameworks: a control names the framewo
 
 | | |
 |---|---|
-| **Version** | 0.10.0 (platform `>=0.4.0, <0.5`) |
+| **Version** | 0.11.0 (platform `>=0.4.0, <0.5`) |
 | **Kind** | Own interface at `/grc/`, plus Ferrum's generic records screens for every entity |
-| **What it adds** | 15 entities and a settings record (Incident, Notice Rule, Risk, Threat, Vulnerability, Control, Control Test, Framework, Requirement, Assessment, Risk Acceptance, Policy, Policy Acknowledgement, Attestation, Finding), 9 child tables, 3 roles, 1 menu module, 3 numbered record types |
+| **What it adds** | 18 entities and a settings record (Business Process, Continuity Plan, Plan Test, Incident, Notice Rule, Risk, Threat, Vulnerability, Control, Control Test, Framework, Requirement, Assessment, Risk Acceptance, Policy, Policy Acknowledgement, Attestation, Finding), 10 child tables, 3 roles, 1 menu module, 3 numbered record types |
 | **Depends on** | Ferrum core only |
 | **Works with** | The Ferrum assistant, audit trail, notifications and Studio; no other app is required |
 | **Languages** | English, Arabic (right to left), Hindi; a workspace can change any interface word |
@@ -117,6 +117,20 @@ what and until when. It ships no control frameworks: a control names the framewo
 </table>
 
 ## ✨ Features
+
+### 🏗️ Continuity
+
+- **Business Process.** Something the organisation does that must keep running: owner, criticality, what stops
+  when it stops, and its recovery objectives in hours (how soon it must run again, how much recent data it can
+  lose, after how long the harm cannot be undone; the first no longer than the last). Keep people's phone numbers
+  out of its free text.
+- **Continuity Plan.** How the processes it covers are kept running or brought back: owner, status (Draft, In
+  Force, Retired), each process once, the plan's document, and how often it is tested (default 365 days).
+- **Plan Test.** A test of a plan in force on a day (Walkthrough, Tabletop, Simulation, Full) with its result,
+  evidence (a Passed result needs a file), how long recovery took, and whether that met the shortest recovery time
+  of the plan's processes. Who tested it is filled in.
+- **Current.** A plan is current while its latest test by day passed and is within its interval; upkeep ages it,
+  and the home page lists plans in force that need a test.
 
 ### 🚨 Incidents
 
@@ -359,6 +373,9 @@ Each person acknowledges each revision once. New text means a new revision and a
 | **Policy** | What people follow | Title, owner, text, status, revision, published text, published on, review by |
 | **Policy Acknowledgement** | Who read which revision | Policy, revision, person, acknowledged at |
 | **Attestation** | One person asked to acknowledge one revision | Policy, revision, person, due on, status (Due, Acknowledged, Withdrawn), acknowledged at, overdue |
+| **Business Process** | What must keep running | Name, owner, criticality, impact, recovery time, recovery point, longest outage (hours), depends on |
+| **Continuity Plan** | How processes are kept running | Name, owner, status, processes, document, test every (days), review by, last tested on, last result, current |
+| **Plan Test** | A test of a plan on a day | Plan, tested on, tester, kind, result, recovered in hours, met recovery time, evidence, notes |
 | **Incident** | Something that happened | Number, title, kind, severity, owner, detected, contained and resolved at, status, personal data affected, people affected, risk, notices (rule, recipient, due at, sent at, reference), next notice due, notice overdue, lessons |
 | **Notice Rule** | Who is told, within how many hours | Name, recipient, hours, personal data only, from severity, disabled |
 | **Finding** | A gap an audit or test found | Number, title, severity, control, risk, owner, due on, status, remediation, steps (title, owner, due on, done, done on), retest required, retest, overdue |
@@ -411,7 +428,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 | Remediation plans with milestones and retest | 🟡² | ✅ | ✅ | ✅ | 🟡 | 🟡 |
 | Audit engagements and auditor access | ❌ | ✅ | ✅ | ✅ | ✅ | 🟡 |
 | Vendor and third-party risk | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Business continuity and impact analysis | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ |
+| Business continuity and impact analysis | 🟡¹² | ✅ | ✅ | ✅ | ❌ | ✅ |
 | Incident and breach register | 🟡¹¹ | ✅ | ✅ | ✅ | 🟡 | ✅ |
 | Trust centre and security questionnaires | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
 | Heat maps, dashboards and board reports | 🟡³ | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -430,6 +447,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 ⁹ Assessments of a framework with results beside what the controls say, counts and coverage; no scores, maturity levels or implementation groups.
 ¹⁰ Threats and vulnerabilities as the workspace's libraries, assets as names or ITSM configuration items; nothing scores a risk from them.
 ¹¹ Incidents with notices from the workspace's own rules and an overdue mark; no public breach notice, affected-person list or link to ITSM incidents.
+¹² Processes with recovery objectives, plans and plan tests that go stale; no exercises with tasks, contact trees or dependency graphs.
 
 ### 🏆 Where Governance and Risk stands out
 
@@ -446,7 +464,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 - 📚 **More framework libraries**, mapping between frameworks, and assessment of coverage across them.
 - 🤖 **Automated evidence** and continuous control monitoring from cloud, identity, HR and code systems.
 - 🧑‍⚖️ **Audit engagements** with an auditor portal, request lists and sampling.
-- 🏢 **Vendor risk** and business continuity.
+- 🏢 **Vendor risk**, and continuity exercises with tasks and contact trees.
 - 📈 **Reports**: heat maps, coverage and board packs.
 - 🧮 **Risk depth**: assets, threats, vulnerabilities and several matrices with labelled axes.
 
@@ -457,6 +475,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 ### ✅ Recently shipped
 
+- [x] **0.11.0.** Business continuity: processes with recovery objectives, plans, and plan tests that go stale.
 - [x] **0.10.0.** An incident and breach register, with notice deadlines kept as rules and the owner told when one passes.
 - [x] **0.9.0.** Threats, vulnerabilities and assets on a risk; the ITSM connector for configuration items.
 - [x] **0.8.0.** Compliance assessments: a result per requirement beside what the controls say, and coverage.
@@ -500,7 +519,6 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 **Wider governance**
 - [ ] Vendor and third-party risk with questionnaires and reassessment.
 - [ ] Trust centre and security-questionnaire answering.
-- [ ] Business continuity and impact analysis.
 
 ## 🚀 Install
 

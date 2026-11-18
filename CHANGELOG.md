@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0
+
+Needs the same platform as 0.10.0. Package `grc` 0.10.0: entities Business Process, Continuity Plan (with its
+processes) and Plan Test. Nothing changes for existing records. `ui/dist` rebuilt: the home's "Plans to test".
+
+- **Business continuity.** Processes with recovery objectives in hours; plans that cover them; plan tests on a day
+  with their result, evidence and whether recovery met the shortest objective. A plan is current while its latest
+  test passed and is within its interval, as a control is effective; upkeep ages it.
+
 ## 0.10.0
 
 Needs the same platform as 0.9.0. Package `grc` 0.9.0: entities Incident (with its notices) and Notice Rule, and

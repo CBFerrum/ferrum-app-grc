@@ -1,6 +1,6 @@
 id: grc
 name: Governance and Risk
-version: 0.10.0
+version: 0.11.0
 publisher: cbferrum
 summary: "Risks scored on a matrix with their treatment and acceptance, controls tested with evidence, policies acknowledged by revision, and findings"
 description: README.md
@@ -44,12 +44,14 @@ contributes:
         under); a Control's requirements table lists the Requirements it answers. A Finding (Open, Remediating,
         Closed) is a gap found. A Risk lists the Threats that could cause it, the Vulnerabilities they would use, and
         the assets at stake (RiskAsset rows). An Incident (Open, Contained, Resolved) has notices from NoticeRules,
-        each due some hours after detection; notice_overdue marks one whose next notice passed unsent. A ComplianceAssessment (In Progress, Complete) assesses one Framework, a row per
+        each due some hours after detection; notice_overdue marks one whose next notice passed unsent. A
+        ContinuityPlan covers BusinessProcesses (with recovery objectives in hours) and is current while its latest
+        PlanTest passed and is recent. A ComplianceAssessment (In Progress, Complete) assesses one Framework, a row per
         requirement with its result beside what the controls say, and its coverage.
       suggestions:
         - "What are our highest risks after their controls?"
         - "Which controls failed their last test?"
         - "Who has not acknowledged the current revision of a policy?"
-        - "Which risk acceptances expire soon?"
         - "Where do we stand against each framework?"
         - "Which incidents have a notice overdue?"
+        - "Which continuity plans are due a test?"

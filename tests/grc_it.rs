@@ -869,6 +869,58 @@ async fn scenario() {
     let f = uid(&t.insert(&rm, "Finding", from_incident).await["id"]);
     assert_eq!(t.get("Finding", f).await["incident"], json!(leak.to_string()));
 
+    // ───────────── business continuity ─────────────
+    let process =
+        |name: &str, rto: Option<i64>| json!({"process_name": name, "owner": "rm@secure.test", "recovery_time_hours": rto, "longest_outage_hours": 24});
+    // A process recovers before its longest outage.
+    let mut slow = process("Slow", Some(10));
+    slow["longest_outage_hours"] = json!(8);
+    refused(t.k.insert(&rm, "BusinessProcess", obj(slow)).await, "invalid", "no longer than the longest outage");
+    let p4 = uid(&t.insert(&rm, "BusinessProcess", process("Payroll", Some(4))).await["id"]);
+    let p8 = uid(&t.insert(&rm, "BusinessProcess", process("Invoicing", Some(8))).await["id"]);
+    let loose = uid(&t.insert(&rm, "BusinessProcess", process("Archiving", None)).await["id"]);
+    let covers = |ids: &[Uuid]| ids.iter().map(|x| json!({"process": x.to_string()})).collect::<Vec<_>>();
+    let plan = uid(&t
+        .insert(
+            &rm,
+            "ContinuityPlan",
+            json!({"plan_name": "Finance recovery", "owner": "rm@secure.test", "processes": covers(&[p4, p8]), "test_every_days": 30}),
+        )
+        .await["id"]);
+    refused(t.set(&rm, "ContinuityPlan", plan, json!({"processes": covers(&[p4, p4])})).await, "invalid", "a process is listed once");
+    let drill = |plan: Uuid, on: String, result: &str, hours: Option<i64>, evidence: Value| json!({"plan": plan.to_string(), "tested_on": on, "result": result, "recovered_in_hours": hours, "evidence": evidence});
+    // A plan is tested once it is in force.
+    refused(t.k.insert(&rm, "PlanTest", obj(drill(plan, today.to_string(), "Passed", Some(4), proof.clone()))).await, "invalid", "once it is in force");
+    t.set(&rm, "ContinuityPlan", plan, json!({"status": "In Force"})).await.unwrap();
+    // A passed test has its evidence; a failed one leaves the plan not current.
+    refused(t.k.insert(&rm, "PlanTest", obj(drill(plan, today.to_string(), "Passed", Some(4), json!([])))).await, "invalid", "a passed test has its evidence");
+    t.insert(&rm, "PlanTest", drill(plan, (today - Duration::days(2)).to_string(), "Failed", Some(12), json!([]))).await;
+    assert_eq!(t.get("ContinuityPlan", plan).await["current"], false, "failed");
+    // A passed test makes a plan current; recovery is measured against the shortest objective.
+    let five = t.insert(&rm, "PlanTest", drill(plan, (today - Duration::days(1)).to_string(), "Passed", Some(5), proof.clone())).await;
+    assert_eq!(five["met_recovery_time"], false, "5 hours against 4");
+    assert_eq!(five["tester"], "rm@secure.test");
+    let four = t.insert(&rm, "PlanTest", drill(plan, today.to_string(), "Passed", Some(4), proof.clone())).await;
+    assert_eq!(four["met_recovery_time"], true);
+    let p = t.get("ContinuityPlan", plan).await;
+    assert_eq!(
+        (p["current"].as_bool(), p["last_tested_on"].as_str(), p["last_result"].as_str()),
+        (Some(true), Some(today.to_string().as_str()), Some("Passed"))
+    );
+    // An older test entered later is not the last.
+    t.insert(&rm, "PlanTest", drill(plan, (today - Duration::days(5)).to_string(), "Failed", None, json!([]))).await;
+    assert_eq!(t.get("ContinuityPlan", plan).await["current"], true, "the latest by day stands");
+    // No objective on any process: not met.
+    let other = uid(&t
+        .insert(&rm, "ContinuityPlan", json!({"plan_name": "Archive recovery", "owner": "rm@secure.test", "status": "In Force", "processes": covers(&[loose])}))
+        .await["id"]);
+    assert_eq!(t.insert(&rm, "PlanTest", drill(other, today.to_string(), "Passed", Some(1), proof.clone())).await["met_recovery_time"], false);
+    // Time makes a plan stale.
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(31)).await.unwrap();
+    assert_eq!(t.get("ContinuityPlan", plan).await["current"], false, "31 days on a 30-day interval");
+    // Who may: a Risk Approver does not record a test.
+    refused(t.k.insert(&ra, "PlanTest", obj(drill(plan, today.to_string(), "Passed", Some(4), proof.clone()))).await, "forbidden", "");
+
     // ───────────── who may do what ─────────────
     refused(t.k.insert(&ra, "Risk", obj(risk("Mine", "ra@secure.test", [1, 1, 1, 1, 1, 1], "Open", json!([])))).await, "forbidden", "");
     refused(t.k.insert(&reader, "Policy", obj(json!({"title": "Mine", "text": "x"}))).await, "forbidden", "");
@@ -882,11 +934,14 @@ async fn scenario() {
     assert_eq!(
         declared,
         [
+            "BusinessProcess",
             "ComplianceAssessment",
+            "ContinuityPlan",
             "Control",
             "ControlTest",
             "Finding",
             "Incident",
+            "PlanTest",
             "Policy",
             "PolicyAcknowledgement",
             "PolicyAttestation",
@@ -896,7 +951,7 @@ async fn scenario() {
     );
     let mut handed: Vec<&str> = grc.manifest.handover.iter().map(|h| h.entity.as_str()).collect();
     handed.sort();
-    assert_eq!(handed, ["ComplianceAssessment", "Control", "Finding", "Incident", "Policy", "Risk"]);
+    assert_eq!(handed, ["BusinessProcess", "ComplianceAssessment", "ContinuityPlan", "Control", "Finding", "Incident", "Policy", "Risk"]);
     let theirs = t.k.personal_data(&t.admin, "rm@secure.test").await.expect("their data").to_string();
     for f in [f1, f2, f3, quiet] {
         assert!(theirs.contains(&f.to_string()), "the findings rm owns are hers: {f}");

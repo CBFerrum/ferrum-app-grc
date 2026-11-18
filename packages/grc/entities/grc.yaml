@@ -181,6 +181,65 @@
   numbering: {template: "ASM-{YYYY}-{seq:4}"}
   list: {columns: [number, title, framework, owner, coverage, status], sort: created_at desc}
 
+- name: BusinessProcess
+  label: Business Process
+  label_plural: Business Processes
+  kind: master
+  module: grc
+  title_field: process_name
+  description: Something the organisation does that must keep running, and how long it can stop.
+  fields:
+    - {name: process_name, type: data, required: true, unique: true, in_list: true, label: Name}
+    - {name: owner, type: email, required: true, in_list: true, in_filter: true}
+    - {name: criticality, type: select, options: [Low, Medium, High, Critical], default: Medium, in_list: true, in_filter: true}
+    - {name: impact, type: text, description: "What stops, and who is hurt, when it stops"}
+    - {name: recovery_time_hours, type: int, min: 0, in_list: true, label: Recovery Time (Hours), description: "How soon it must be running again"}
+    - {name: recovery_point_hours, type: int, min: 0, in_list: true, label: Recovery Point (Hours), description: "How much recent data it can afford to lose"}
+    - {name: longest_outage_hours, type: int, min: 0, label: Longest Outage (Hours), description: "After this long, the harm cannot be undone"}
+    - {name: depends_on, type: text, description: "The systems, sites, suppliers and people it needs"}
+  list: {columns: [process_name, owner, criticality, recovery_time_hours, recovery_point_hours], sort: process_name asc}
+
+- {name: PlanProcess, label: Process, kind: child, fields: [{name: process, type: link, to: BusinessProcess, required: true, in_list: true}]}
+
+- name: ContinuityPlan
+  label: Continuity Plan
+  label_plural: Continuity Plans
+  kind: master
+  module: grc
+  title_field: plan_name
+  description: How the processes it covers are kept running or brought back. It is current while its last test passed and is still recent.
+  fields:
+    - {name: plan_name, type: data, required: true, unique: true, in_list: true, label: Name}
+    - {name: owner, type: email, required: true, in_list: true, in_filter: true}
+    - {name: status, type: select, options: [Draft, In Force, Retired], default: Draft, in_list: true, in_filter: true}
+    - {name: processes, type: table, of: PlanProcess}
+    - {name: document, type: attach, description: "The plan itself"}
+    - {name: test_every_days, type: int, required: true, default: 365, min: 1, max: 3650}
+    - {name: review_by, type: date}
+    - {name: last_tested_on, type: date, read_only: true, no_copy: true, in_list: true}
+    - {name: last_result, type: select, options: [Passed, Passed With Findings, Failed], read_only: true, no_copy: true, in_list: true}
+    - {name: current, type: check, read_only: true, no_copy: true, in_list: true, in_filter: true}
+  list: {columns: [plan_name, owner, status, last_tested_on, last_result, current], sort: plan_name asc}
+
+- name: PlanTest
+  label: Plan Test
+  label_plural: Plan Tests
+  kind: master
+  module: grc
+  title_field: plan
+  description: A test of a continuity plan on a day; it is the plan's last test while no later one exists.
+  fields:
+    - {name: plan, type: link, to: ContinuityPlan, required: true, in_list: true, in_filter: true}
+    - {name: tested_on, type: date, required: true, in_list: true}
+    - {name: tester, type: email, read_only: true, no_copy: true, in_list: true}
+    - {name: kind, type: select, options: [Walkthrough, Tabletop, Simulation, Full], default: Tabletop, in_list: true}
+    - {name: result, type: select, options: [Passed, Passed With Findings, Failed], required: true, in_list: true}
+    - {name: recovered_in_hours, type: int, min: 0, description: "How long recovery took in this test"}
+    - {name: met_recovery_time, type: check, read_only: true, in_list: true, description: "Recovery took no longer than the shortest recovery time of the plan's processes"}
+    - {name: evidence, type: table, of: ControlEvidence}
+    - {name: notes, type: text}
+  list: {columns: [plan, tested_on, kind, result, met_recovery_time, tester], sort: tested_on desc}
+
 - name: ControlEvidence
   label: Evidence
   kind: child

@@ -1,5 +1,5 @@
 package: grc
-version: 0.9.0
+version: 0.10.0
 label: Governance and Risk
 description: "Risks scored on a matrix with their treatment and acceptance, controls tested with evidence, policies acknowledged by revision, and findings"
 depends: [core]
@@ -9,7 +9,7 @@ modules:
     label: Governance and Risk
     icon: clipboard-list
     order: 58
-    items: [Incident, NoticeRule, Risk, Threat, Vulnerability, Control, ControlTest, Framework, Requirement, ComplianceAssessment, RiskAcceptance, Policy, PolicyAcknowledgement, PolicyAttestation, Finding, GrcSettings]
+    items: [Incident, NoticeRule, BusinessProcess, ContinuityPlan, PlanTest, Risk, Threat, Vulnerability, Control, ControlTest, Framework, Requirement, ComplianceAssessment, RiskAcceptance, Policy, PolicyAcknowledgement, PolicyAttestation, Finding, GrcSettings]
 
 roles:
   - name: Risk Manager
@@ -18,6 +18,9 @@ roles:
       - {entity: GrcSettings, read: true, write: true, create: true}
       - {entity: Risk, read: true, write: true, create: true, export: true}
       - {entity: Incident, read: true, write: true, create: true, export: true}
+      - {entity: BusinessProcess, read: true, write: true, create: true, export: true}
+      - {entity: ContinuityPlan, read: true, write: true, create: true, export: true}
+      - {entity: PlanTest, read: true, write: true, create: true, export: true}
       - {entity: NoticeRule, read: true, write: true, create: true, export: true}
       - {entity: Threat, read: true, write: true, create: true, export: true, import: true}
       - {entity: Vulnerability, read: true, write: true, create: true, export: true, import: true}
@@ -36,6 +39,9 @@ roles:
     permissions:
       - {entity: Risk, read: true}
       - {entity: Incident, read: true}
+      - {entity: BusinessProcess, read: true}
+      - {entity: ContinuityPlan, read: true}
+      - {entity: PlanTest, read: true}
       - {entity: NoticeRule, read: true}
       - {entity: Threat, read: true}
       - {entity: Vulnerability, read: true}
@@ -140,6 +146,9 @@ personal_data:
   - {entity: Policy, match: owner, erase: [owner]}
   - {entity: Finding, match: owner, retain: "Who answered for a finding is part of the audit record"}
   - {entity: Incident, match: owner, retain: "Who answered for an incident is part of its record"}
+  - {entity: BusinessProcess, match: owner, retain: "Who answered for a process is part of the continuity record"}
+  - {entity: ContinuityPlan, match: owner, retain: "Who answered for a plan is part of the continuity record"}
+  - {entity: PlanTest, match: tester, retain: "Who tested a plan is the evidence of the test"}
   - {entity: ComplianceAssessment, match: owner, retain: "Who answered for an assessment is part of the audit record"}
   - {entity: Finding, match: steps.owner, retain: "Who was to do a step of a fix is part of the audit record"}
 
@@ -151,3 +160,5 @@ handover:
   - {entity: Policy, field: owner, where: {status: [Draft, Published]}}
   - {entity: ComplianceAssessment, field: owner, where: {status: [In Progress]}}
   - {entity: Incident, field: owner, where: {status: [Open, Contained]}}
+  - {entity: BusinessProcess, field: owner}
+  - {entity: ContinuityPlan, field: owner, where: {status: [Draft, In Force]}}

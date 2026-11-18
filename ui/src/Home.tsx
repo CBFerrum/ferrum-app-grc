@@ -44,7 +44,7 @@ export function Home() {
   const q = useQuery({
     queryKey: ["grc", "register"],
     queryFn: async () => {
-      const [risks, controls, findings, policies, asks, assessments, incidents] = await Promise.all([
+      const [risks, controls, findings, policies, asks, assessments, incidents, plans] = await Promise.all([
         rows("Risk", []),
         rows("Control", [["status", "eq", "In Place"], ["effective", "eq", false]]),
         rows("Finding", [["status", "!=", "Closed"]], { sort: "due_on asc" }),
@@ -53,8 +53,9 @@ export function Home() {
         rows("PolicyAttestation", [["status", "eq", "Due"]], { sort: "due_on asc", titles: "true" }),
         rows("ComplianceAssessment", [["status", "eq", "In Progress"]], { sort: "created_at desc", titles: "true" }),
         rows("Incident", [["status", "!=", "Resolved"]], { sort: "detected_at desc" }),
+        rows("ContinuityPlan", [["status", "eq", "In Force"], ["current", "eq", false]], { sort: "plan_name asc" }),
       ]);
-      return { risks: worstFirst(risks), controls, findings, policies, asks, assessments, incidents: overdueFirst(incidents) };
+      return { risks: worstFirst(risks), controls, findings, policies, asks, assessments, incidents: overdueFirst(incidents), plans };
     },
   });
   const create = (
@@ -74,7 +75,7 @@ export function Home() {
       <LoadFailed error={q.error} onRetry={() => void q.refetch()} />
     </PageStack>
   );
-  const { risks, controls, policies, asks, assessments, incidents } = q.data;
+  const { risks, controls, policies, asks, assessments, incidents, plans } = q.data;
   // What is late comes before what is merely due.
   const findings = [...q.data.findings].sort((a, b) => Number(Boolean(b.overdue)) - Number(Boolean(a.overdue)));
   const summary = [findings.length && t("{n} open findings", { n: findings.length }), controls.length && t("{n} controls to test", { n: controls.length })].filter(Boolean).join(" · ");
@@ -105,6 +106,13 @@ export function Home() {
             <QueueItem key={c.id} to={`/e/Control/${c.id}`} title={isolate(String(c.control_name))} meta={c.last_tested_on ? t("last tested {day}", { day: day(c.last_tested_on) }) : t("never tested")} />
           ))}
         </Queue>
+        {plans.length > 0 && (
+          <Queue title={t("Plans to test")} count={plans.length} more={{ to: "/e/ContinuityPlan", count: plans.length - LIMIT }}>
+            {plans.slice(0, LIMIT).map((p) => (
+              <QueueItem key={p.id} to={`/e/ContinuityPlan/${p.id}`} title={isolate(String(p.plan_name))} meta={p.last_tested_on ? t("last tested {day}", { day: day(p.last_tested_on) }) : t("never tested")} />
+            ))}
+          </Queue>
+        )}
         <Queue title={t("Risks")} count={risks.length} tone={risks.some((r) => r.level === "Critical") ? "attention" : "default"} more={{ to: "/e/Risk", count: risks.length - LIMIT }}>
           {risks.slice(0, LIMIT).map((r) => (
             <QueueItem key={r.id} to={`/e/Risk/${r.id}`} title={isolate(String(r.title))} meta={isolate(String(r.treatment ?? ""))} trailing={<Badge tone={levelTone(r.level)}>{isolate(`${String(r.level ?? "")} ${String(r.current_score ?? "")}`)}</Badge>} />
