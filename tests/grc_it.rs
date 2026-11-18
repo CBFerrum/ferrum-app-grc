@@ -795,6 +795,80 @@ async fn scenario() {
     assert_eq!(t.get("Control", good).await["effective"], false, "stale by now");
     assert_eq!(rows_of(&t.get("ComplianceAssessment", asm).await), rows_of(&done), "as it was completed");
 
+    // ───────────── incidents and the notices they owe ─────────────
+    let notice_rule = |name: &str, hours: i64, personal: bool, from: &str| json!({"rule_name": name, "recipient": format!("{name} desk"), "hours": hours, "personal_data_only": personal, "from_severity": from});
+    let authority = uid(&t.insert(&rm, "NoticeRule", notice_rule("Authority", 72, true, "Low")).await["id"]);
+    let customers = uid(&t.insert(&rm, "NoticeRule", notice_rule("Customers", 24, false, "High")).await["id"]);
+    let detected = Utc::now() - Duration::hours(80);
+    let incident = |title: &str, severity: &str, personal: bool| json!({"title": title, "kind": "Data Breach", "severity": severity, "owner": "rm@secure.test", "detected_at": detected.to_rfc3339(), "personal_data_affected": personal});
+    let when = |v: &Value| v.as_str().map(|x| chrono::DateTime::parse_from_rfc3339(x).unwrap().with_timezone(&Utc));
+    let dues = |d: &Doc| {
+        let mut v: Vec<(String, chrono::DateTime<Utc>)> =
+            d["notices"].as_array().unwrap().iter().map(|n| (n["rule"].as_str().unwrap().to_string(), when(&n["due_at"]).unwrap())).collect();
+        v.sort_by_key(|x| x.1);
+        v
+    };
+    let close = |a: Option<chrono::DateTime<Utc>>, b: chrono::DateTime<Utc>| a.is_some_and(|a| (a - b).num_seconds().abs() <= 1);
+    // An incident gets the notices its rules ask for.
+    let leak = uid(&t.insert(&rm, "Incident", incident("Customer list leaked", "High", true)).await["id"]);
+    let d = t.get("Incident", leak).await;
+    let due = dues(&d);
+    assert_eq!(due.iter().map(|x| x.0.clone()).collect::<Vec<_>>(), [customers.to_string(), authority.to_string()]);
+    assert!(close(Some(due[0].1), detected + Duration::hours(24)) && close(Some(due[1].1), detected + Duration::hours(72)), "{due:?}");
+    assert!(close(when(&d["next_notice_due"]), detected + Duration::hours(24)), "the earlier deadline");
+    // A rule that does not apply gives no notice.
+    let outage = uid(&t.insert(&rm, "Incident", incident("Mail outage", "High", false)).await["id"]);
+    assert_eq!(dues(&t.get("Incident", outage).await).len(), 1, "no personal data: the customers' notice only");
+    // A deadline passed unsent tells the owner once, even from two upkeeps at once.
+    let (a, b) = tokio::join!(ferrum_app_grc::maintenance_on(&k, tenant, today), ferrum_app_grc::maintenance_on(&k, tenant, today));
+    a.unwrap();
+    b.unwrap();
+    assert_eq!(t.get("Incident", leak).await["notice_overdue"], true);
+    assert_eq!(sends(leak, "grc.incident_notice_overdue").await, 1);
+    ferrum_app_grc::maintenance_on(&k, tenant, today).await.unwrap();
+    assert_eq!(sends(leak, "grc.incident_notice_overdue").await, 1, "once");
+    // Marking a notice sent moves on to the next deadline; all sent, none is next.
+    let sent = Utc::now() - Duration::hours(1);
+    let mark = |d: &Doc, which: &[Uuid]| {
+        json!({"notices": d["notices"].as_array().unwrap().iter().map(|n| {
+            let rule = uid(&n["rule"]);
+            if which.contains(&rule) { json!({"id": n["id"], "sent_at": sent.to_rfc3339(), "reference": "case 1"}) } else { json!({"id": n["id"]}) }
+        }).collect::<Vec<_>>()})
+    };
+    let d = t.get("Incident", leak).await;
+    t.set(&rm, "Incident", leak, mark(&d, &[customers])).await.expect("the customers were told");
+    let d = t.get("Incident", leak).await;
+    assert!(close(when(&d["next_notice_due"]), detected + Duration::hours(72)), "on to the authority's");
+    assert_eq!(d["notice_overdue"], false, "a later deadline is told in its turn");
+    t.set(&rm, "Incident", leak, mark(&d, &[customers, authority])).await.unwrap();
+    let d = t.get("Incident", leak).await;
+    assert!(d["next_notice_due"].is_null() && d["notice_overdue"] == false);
+    // A sent notice survives its rule being switched off; an unsent one goes.
+    t.set(&rm, "NoticeRule", customers, json!({"disabled": true})).await.unwrap();
+    t.set(&rm, "Incident", leak, json!({"description": "Exported by mistake"})).await.unwrap();
+    t.set(&rm, "Incident", outage, json!({"description": "Relay down"})).await.unwrap();
+    assert_eq!((dues(&t.get("Incident", leak).await).len(), dues(&t.get("Incident", outage).await).len()), (2, 0));
+    // Times are in order.
+    let mut early = incident("Back to front", "Low", false);
+    early["contained_at"] = json!((detected - Duration::hours(1)).to_rfc3339());
+    refused(t.k.insert(&rm, "Incident", obj(early)).await, "invalid", "is after it was detected");
+    let mut future = incident("Not yet", "Low", false);
+    future["detected_at"] = json!((Utc::now() + Duration::hours(2)).to_rfc3339());
+    refused(t.k.insert(&rm, "Incident", obj(future)).await, "invalid", "is now or before");
+    // A resolved incident says what was learned, and is dated when resolved.
+    refused(t.set(&rm, "Incident", outage, json!({"status": "Resolved"})).await, "invalid", "says what was learned");
+    t.set(&rm, "Incident", outage, json!({"status": "Resolved", "lessons": "A second relay"})).await.unwrap();
+    assert!(t.get("Incident", outage).await["resolved_at"].as_str().is_some(), "dated");
+    // Who may: a Risk Approver reads and cannot write; a Policy Reader does not read.
+    t.k.get(&ra, "Incident", leak, false).await.expect("an approver reads");
+    refused(t.set(&ra, "Incident", leak, json!({"description": "x"})).await, "forbidden", "");
+    assert!(t.k.get(&reader, "Incident", leak, false).await.is_err());
+    // A finding names its incident.
+    let mut from_incident = finding("Exports not reviewed", (today + Duration::days(20)).to_string());
+    from_incident["incident"] = json!(leak.to_string());
+    let f = uid(&t.insert(&rm, "Finding", from_incident).await["id"]);
+    assert_eq!(t.get("Finding", f).await["incident"], json!(leak.to_string()));
+
     // ───────────── who may do what ─────────────
     refused(t.k.insert(&ra, "Risk", obj(risk("Mine", "ra@secure.test", [1, 1, 1, 1, 1, 1], "Open", json!([])))).await, "forbidden", "");
     refused(t.k.insert(&reader, "Policy", obj(json!({"title": "Mine", "text": "x"}))).await, "forbidden", "");
@@ -807,11 +881,22 @@ async fn scenario() {
     declared.dedup();
     assert_eq!(
         declared,
-        ["ComplianceAssessment", "Control", "ControlTest", "Finding", "Policy", "PolicyAcknowledgement", "PolicyAttestation", "Risk", "RiskAcceptance"]
+        [
+            "ComplianceAssessment",
+            "Control",
+            "ControlTest",
+            "Finding",
+            "Incident",
+            "Policy",
+            "PolicyAcknowledgement",
+            "PolicyAttestation",
+            "Risk",
+            "RiskAcceptance"
+        ]
     );
     let mut handed: Vec<&str> = grc.manifest.handover.iter().map(|h| h.entity.as_str()).collect();
     handed.sort();
-    assert_eq!(handed, ["ComplianceAssessment", "Control", "Finding", "Policy", "Risk"]);
+    assert_eq!(handed, ["ComplianceAssessment", "Control", "Finding", "Incident", "Policy", "Risk"]);
     let theirs = t.k.personal_data(&t.admin, "rm@secure.test").await.expect("their data").to_string();
     for f in [f1, f2, f3, quiet] {
         assert!(theirs.contains(&f.to_string()), "the findings rm owns are hers: {f}");

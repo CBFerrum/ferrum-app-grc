@@ -1,5 +1,5 @@
 package: grc
-version: 0.8.0
+version: 0.9.0
 label: Governance and Risk
 description: "Risks scored on a matrix with their treatment and acceptance, controls tested with evidence, policies acknowledged by revision, and findings"
 depends: [core]
@@ -9,7 +9,7 @@ modules:
     label: Governance and Risk
     icon: clipboard-list
     order: 58
-    items: [Risk, Threat, Vulnerability, Control, ControlTest, Framework, Requirement, ComplianceAssessment, RiskAcceptance, Policy, PolicyAcknowledgement, PolicyAttestation, Finding, GrcSettings]
+    items: [Incident, NoticeRule, Risk, Threat, Vulnerability, Control, ControlTest, Framework, Requirement, ComplianceAssessment, RiskAcceptance, Policy, PolicyAcknowledgement, PolicyAttestation, Finding, GrcSettings]
 
 roles:
   - name: Risk Manager
@@ -17,6 +17,8 @@ roles:
     permissions:
       - {entity: GrcSettings, read: true, write: true, create: true}
       - {entity: Risk, read: true, write: true, create: true, export: true}
+      - {entity: Incident, read: true, write: true, create: true, export: true}
+      - {entity: NoticeRule, read: true, write: true, create: true, export: true}
       - {entity: Threat, read: true, write: true, create: true, export: true, import: true}
       - {entity: Vulnerability, read: true, write: true, create: true, export: true, import: true}
       - {entity: Control, read: true, write: true, create: true, export: true}
@@ -33,6 +35,8 @@ roles:
     description: Accepts, rejects or revokes risks taken on above the tolerance.
     permissions:
       - {entity: Risk, read: true}
+      - {entity: Incident, read: true}
+      - {entity: NoticeRule, read: true}
       - {entity: Threat, read: true}
       - {entity: Vulnerability, read: true}
       - {entity: RiskAcceptance, read: true, write: true}
@@ -107,6 +111,15 @@ messages:
       en:
         email: {subject: "Reminder: acknowledge {{ values.policy }} by {{ doc.due_on }}", body: "<p>You have not yet acknowledged revision {{ doc.revision }} of the policy {{ values.policy }}. Please read it and acknowledge it by {{ doc.due_on }}.</p>"}
         inapp: {title: "Acknowledge {{ values.policy }} by {{ doc.due_on }}", text: "Revision {{ doc.revision }}"}
+  - key: grc.incident_notice_overdue
+    label: Incident notice overdue
+    entity: Incident
+    category: operational
+    channels: [email, inapp]
+    languages:
+      en:
+        email: {subject: "A notice for {{ doc.number }} is overdue", body: "<p>A notice for {{ doc.number }} was due at {{ doc.next_notice_due }} and is not marked sent: {{ doc.title }}.</p>"}
+        inapp: {title: "A notice for {{ doc.number }} is overdue", text: "{{ doc.title }}"}
 
 # Settings saved before the matrix existed get its defaults, which are the levels of before.
 backfills:
@@ -126,6 +139,7 @@ personal_data:
   - {entity: PolicyAttestation, match: person, retain: "Proof of who was asked to acknowledge a policy and whether they did"}
   - {entity: Policy, match: owner, erase: [owner]}
   - {entity: Finding, match: owner, retain: "Who answered for a finding is part of the audit record"}
+  - {entity: Incident, match: owner, retain: "Who answered for an incident is part of its record"}
   - {entity: ComplianceAssessment, match: owner, retain: "Who answered for an assessment is part of the audit record"}
   - {entity: Finding, match: steps.owner, retain: "Who was to do a step of a fix is part of the audit record"}
 
@@ -136,3 +150,4 @@ handover:
   - {entity: Finding, field: owner, where: {status: [Open, Remediating]}}
   - {entity: Policy, field: owner, where: {status: [Draft, Published]}}
   - {entity: ComplianceAssessment, field: owner, where: {status: [In Progress]}}
+  - {entity: Incident, field: owner, where: {status: [Open, Contained]}}

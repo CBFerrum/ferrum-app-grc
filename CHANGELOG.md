@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.0
+
+Needs the same platform as 0.9.0. Package `grc` 0.9.0: entities Incident (with its notices) and Notice Rule, and
+an `incident` link on Finding. No rule is seeded. Nothing changes for existing records. `ui/dist` rebuilt: the
+home's Incidents queue.
+
+- **An incident and breach register.** Severity, owner, when it was detected, contained and resolved, personal data
+  affected, lessons. Times in order; a resolved incident says what was learned.
+- **Notice deadlines are data.** Notice Rules say who is told within how many hours of detection, from which
+  severity, and whether only for personal data. Each incident gets its notices; one marked sent is never lost.
+- **Told when a deadline passes.** Upkeep marks the incident and tells its owner (`grc.incident_notice_overdue`)
+  once per deadline, even from two upkeeps at once.
+
 ## 0.9.0
 
 Needs the same platform as 0.8.0. Package `grc` 0.8.0: entities Threat and Vulnerability and three tables on Risk

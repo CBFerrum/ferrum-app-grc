@@ -311,6 +311,60 @@
   indexes: [[status, due_on]]
   list: {columns: [policy, revision, person, due_on, status, overdue], sort: due_on asc}
 
+- name: NoticeRule
+  label: Notice Rule
+  label_plural: Notice Rules
+  kind: master
+  module: grc
+  title_field: rule_name
+  description: Who is told of an incident, and within how many hours of its detection.
+  fields:
+    - {name: rule_name, type: data, required: true, unique: true, in_list: true, label: Name}
+    - {name: recipient, type: data, required: true, in_list: true, description: "Who is told: an authority, the people affected, a customer"}
+    - {name: hours, type: int, required: true, min: 1, max: 8760, in_list: true, description: "Hours after detection by which they are told"}
+    - {name: personal_data_only, type: check, in_list: true, description: "Applies only to incidents that affected personal data"}
+    - {name: from_severity, type: select, options: [Low, Medium, High, Critical], default: Low, in_list: true, description: "Applies from this severity up"}
+    - {name: disabled, type: check, in_list: true, in_filter: true}
+  list: {columns: [rule_name, recipient, hours, personal_data_only, from_severity, disabled], sort: rule_name asc}
+
+- name: IncidentNotice
+  label: Notice
+  kind: child
+  fields:
+    - {name: rule, type: link, to: NoticeRule, read_only: true, in_list: true}
+    - {name: recipient, type: data, read_only: true, in_list: true}
+    - {name: due_at, type: datetime, read_only: true, in_list: true}
+    - {name: sent_at, type: datetime, in_list: true}
+    - {name: reference, type: data, max_length: 200, in_list: true, description: "The case number or message it was sent as"}
+
+- name: Incident
+  label: Incident
+  label_plural: Incidents
+  kind: master
+  module: grc
+  title_field: title
+  record_reads: open
+  description: Something that happened and harmed, or could have harmed, the organisation or the people whose data it holds.
+  fields:
+    - {name: title, type: data, required: true, in_list: true}
+    - {name: kind, type: select, options: [Security, Data Breach, Operational, Other], default: Security, in_list: true, in_filter: true}
+    - {name: severity, type: select, options: [Low, Medium, High, Critical], default: Medium, in_list: true, in_filter: true}
+    - {name: owner, type: email, required: true, in_list: true, in_filter: true}
+    - {name: detected_at, type: datetime, required: true, in_list: true}
+    - {name: contained_at, type: datetime}
+    - {name: resolved_at, type: datetime}
+    - {name: status, type: select, options: [Open, Contained, Resolved], default: Open, in_list: true, in_filter: true}
+    - {name: description, type: text}
+    - {name: personal_data_affected, type: check, in_filter: true}
+    - {name: people_affected, type: int, min: 0}
+    - {name: risk, type: link, to: Risk}
+    - {name: notices, type: table, of: IncidentNotice}
+    - {name: next_notice_due, type: datetime, read_only: true, no_copy: true, in_list: true}
+    - {name: notice_overdue, type: check, read_only: true, no_copy: true, in_list: true, in_filter: true}
+    - {name: lessons, type: text, description: "What was learned; a resolved incident says"}
+  numbering: {template: "INC-{YYYY}-{seq:4}"}
+  list: {columns: [number, title, severity, owner, detected_at, status, notice_overdue], sort: detected_at desc}
+
 - name: FindingStep
   label: Step
   kind: child
@@ -340,6 +394,7 @@
     - {name: steps, type: table, of: FindingStep, description: "What is done to fix it, each step owned and dated"}
     - {name: retest_required, type: check, in_filter: true, description: "It closes only after a test of its control, made after it was raised, found the control effective"}
     - {name: retest, type: link, to: ControlTest, description: "The test that showed the fix works"}
+    - {name: incident, type: link, to: Incident, in_filter: true, description: "The incident that showed it"}
     - {name: overdue, type: check, read_only: true, no_copy: true, in_list: true, in_filter: true}
     - {name: reminded_for, type: date, read_only: true, hidden: true, no_copy: true}
   numbering: {template: "FND-{YYYY}-{seq:4}"}

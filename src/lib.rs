@@ -8,6 +8,7 @@
 //!   stale; findings overdue when late, and closed saying how.
 //! * `policies`: revisions published with their text, and acknowledgements of a revision.
 //! * `frameworks`: requirements in a tree by reference, and the requirements a control answers.
+//! * `incidents`: incidents with the notices their rules ask for, and owners told when one is overdue.
 //! * `assessments`: a framework assessed requirement by requirement, beside what the controls say, and coverage.
 //!
 //! Adapted from CISO Assistant's risk scenarios, applied controls, risk acceptances, frameworks and
@@ -18,6 +19,7 @@
 mod assessments;
 mod controls;
 mod frameworks;
+mod incidents;
 mod policies;
 mod risks;
 
@@ -50,6 +52,7 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("Control", Arc::new(frameworks::ControlHook))
         .register("Requirement", Arc::new(frameworks::RequirementHook))
         .register("ComplianceAssessment", Arc::new(assessments::AssessmentHook))
+        .register("Incident", Arc::new(incidents::IncidentHook))
         .register("Finding", Arc::new(controls::FindingHook))
         .register("Policy", Arc::new(policies::PolicyHook));
 }
@@ -85,6 +88,7 @@ async fn upkeep(k: &Kernel, tenant: Uuid, on: Option<NaiveDate>) -> Result<()> {
         controls::remind(k, &ctx, &mut tx, today, days).await?;
     }
     policies::upkeep(k, &ctx, &mut tx, today, days).await?;
+    incidents::upkeep(k, &ctx, &mut tx, chrono::Utc::now()).await?;
     tx.commit().await?;
     Ok(())
 }

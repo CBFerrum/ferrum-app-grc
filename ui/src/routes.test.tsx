@@ -29,6 +29,11 @@ const asks = [
 
 const assessments = [{ id: "c1", title: "2026 assessment", framework: "f1", _titles: { framework: "Our baseline" }, status: "In Progress", coverage: "66.67" }];
 
+const incidents = [
+  { id: "i1", title: "Mail outage", detected_at: "2026-11-17T08:00:00Z", status: "Open", notice_overdue: false },
+  { id: "i2", title: "Customer list leaked", detected_at: "2026-11-15T08:00:00Z", status: "Contained", notice_overdue: true },
+];
+
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   (globalThis as { matchMedia?: unknown }).matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
@@ -41,6 +46,7 @@ beforeEach(() => {
       if (path === "/api/meta") return json({ entities: [], modules: [], reports: [] });
       if (path === "/api/meta/Policy") return json(policyMeta(write));
       if (path === "/api/v1/PolicyAttestation") return json({ rows: asks, total: asks.length });
+      if (path === "/api/v1/Incident") return json({ rows: incidents, total: incidents.length });
       if (path === "/api/v1/ComplianceAssessment") return json({ rows: assessments, total: assessments.length });
       return json({ rows: [], total: 0 });
     }),
@@ -89,6 +95,15 @@ describe("the home", () => {
     expect(text).toContain("Our baseline");
     expect(text).toContain("66.67 %");
     expect(links).toContain("/e/ComplianceAssessment/c1");
+  });
+
+  it("the home page puts incidents with an overdue notice first", async () => {
+    write = "all";
+    const { text, links } = await home();
+    expect(text).toContain("Notice overdue");
+    expect(text.indexOf("Customer list leaked")).toBeLessThan(text.indexOf("Mail outage"));
+    expect(text.indexOf("Incidents")).toBeLessThan(text.indexOf("Open findings"));
+    expect(links).toContain("/e/Incident/i2");
   });
 
   it("a Risk Manager's home names who has not acknowledged", async () => {
