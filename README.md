@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.8.0-7c3aed?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.9.0-7c3aed?style=flat-square)](CHANGELOG.md)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
 ![Rust](https://img.shields.io/badge/Rust-server-b7410e?style=flat-square&logo=rust)
@@ -44,9 +44,9 @@ what and until when. It ships no control frameworks: a control names the framewo
 
 | | |
 |---|---|
-| **Version** | 0.8.0 (platform `>=0.4.0, <0.5`) |
+| **Version** | 0.9.0 (platform `>=0.4.0, <0.5`) |
 | **Kind** | Own interface at `/grc/`, plus Ferrum's generic records screens for every entity |
-| **What it adds** | 11 entities and a settings record (Risk, Control, Control Test, Framework, Requirement, Assessment, Risk Acceptance, Policy, Policy Acknowledgement, Attestation, Finding), 5 child tables, 3 roles, 1 menu module, 3 numbered record types |
+| **What it adds** | 13 entities and a settings record (Risk, Threat, Vulnerability, Control, Control Test, Framework, Requirement, Assessment, Risk Acceptance, Policy, Policy Acknowledgement, Attestation, Finding), 8 child tables, 3 roles, 1 menu module, 3 numbered record types |
 | **Depends on** | Ferrum core only |
 | **Works with** | The Ferrum assistant, audit trail, notifications and Studio; no other app is required |
 | **Languages** | English, Arabic (right to left), Hindi; a workspace can change any interface word |
@@ -134,6 +134,9 @@ what and until when. It ships no control frameworks: a control names the framewo
   controls is refused.
 - **Accept** above the tolerance only with an approved acceptance. The tolerance is a setting (default 6), a score on the matrix. Lowering it does not reopen risks already accepted without an acceptance.
 - **Worst first.** The home page lists risks by level, then by score.
+- **Causes and stakes.** A risk lists the threats that could cause it and the vulnerabilities they would use,
+  each from the workspace's own short library (each once on a risk; one switched off is not added, and stays
+  where it was), and the assets at stake, typed as names. Do not write people's names into an asset.
 
 ### 🔏 Risk acceptance
 
@@ -326,7 +329,8 @@ Each person acknowledges each revision once. New text means a new revision and a
 
 | Entity | What it is | Key fields or states |
 |---|---|---|
-| **Risk** | Something that could go wrong | Number, title, category, owner, three likelihood and impact pairs, three scores, level, treatment, controls, review by |
+| **Risk** | Something that could go wrong | Number, title, category, owner, three likelihood and impact pairs, three scores, level, treatment, controls, threats, vulnerabilities, assets, review by |
+| **Threat**, **Vulnerability** | The workspace's libraries of causes and weaknesses | Name, description, disabled |
 | **Control** | What keeps a risk down | Name, category, owner, status (Planned, In Place, Retired), references, requirements, last tested on, last result, effective |
 | **Framework** | A set of requirements | Name, edition, publisher, source link, description, disabled |
 | **Requirement** | One requirement or heading | Framework, reference, title, text, under, assessable, sort order |
@@ -356,8 +360,10 @@ The app ships no reports and no print formats. Use the platform's report builder
 |---|---|---|
 | **Ferrum platform** | Roles, audit trail, search, notifications, the assistant, Studio and the report builder | Platform core |
 | **Customize and Studio** | Add fields to any record, rules, automations and your own reports | Studio rights |
-| **Other Ferrum apps** | Records live in one database, so a report or automation can read them | None; no connector ships yet |
-| **Outside systems** | None yet: no cloud, identity or ticketing connector, and no framework libraries are included | Planned |
+| **IT Service Management** | `grc_itsm`: an asset on a risk and a control can name a configuration item | Both packages installed; opening the item needs ITSM's rights |
+| **Other Ferrum apps** | Records live in one database, so a report or automation can read them | None |
+| **Framework libraries** | `grc_lib_nist_csf`, and any library written as seed records | The package installed |
+| **Outside systems** | None yet: no cloud, identity or ticketing connector | Planned |
 
 ## 📊 How it compares
 
@@ -369,7 +375,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 | Risk register with scoring | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Inherent, current and residual scores | ✅ | ✅ | ✅ | ✅ | 🟡 | ✅ |
 | Custom matrices and scales | 🟡⁸ | ✅ | ✅ | ✅ | 🟡 | 🟡 |
-| Assets, threats and vulnerabilities on risks | ❌ | ✅ | ✅ | ✅ | 🟡 | ✅ |
+| Assets, threats and vulnerabilities on risks | 🟡¹⁰ | ✅ | ✅ | ✅ | 🟡 | ✅ |
 | Control library with owners and status | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Control tests that need evidence | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Frameworks and requirements with control mapping | 🟡¹ | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -401,6 +407,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 ⁷ The audience is one role per policy and a revision is the campaign; no audience by team or list of people yet.
 ⁸ One matrix per workspace with four levels; its size and the levels' edges are settings, with no axis labels.
 ⁹ Assessments of a framework with results beside what the controls say, counts and coverage; no scores, maturity levels or implementation groups.
+¹⁰ Threats and vulnerabilities as the workspace's libraries, assets as names or ITSM configuration items; nothing scores a risk from them.
 
 ### 🏆 Where Governance and Risk stands out
 
@@ -428,6 +435,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 ### ✅ Recently shipped
 
+- [x] **0.9.0.** Threats, vulnerabilities and assets on a risk; the ITSM connector for configuration items.
 - [x] **0.8.0.** Compliance assessments: a result per requirement beside what the controls say, and coverage.
 - [x] **0.7.0.** Frameworks and requirements as records, controls mapped to them, libraries as packages of seed records.
 - [x] **0.6.0.** A finding's fix as steps with owners and days, and a retest of its control before it closes.
@@ -455,7 +463,6 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 ### 🔭 Later
 
 **Risk depth**
-- [ ] Assets, threats and vulnerabilities on risks.
 - [ ] Key risk indicators.
 
 **Evidence and monitoring**

@@ -91,7 +91,8 @@ async fn scenario() {
     let db = Db::connect(DbConfig { url, max_connections: 16, ..Default::default() }).await.expect("connect");
     sqlx::raw_sql("drop schema if exists public cascade; create schema public;").execute(&db.pool).await.expect("reset");
     let mut packages = ferrum_domain::packages().expect("platform packages");
-    packages.extend(ferrum_app_grc::packages().expect("app packages"));
+    // The connector to ITSM waits for a package this suite does not load; the others go in.
+    packages.extend(ferrum_app_grc::packages().expect("app packages").into_iter().filter(|p| !p.manifest.depends.iter().any(|d| d == "itsm")));
     packages.push(example_library());
     let catalog = Catalog::from_packages(packages).expect("catalog");
     let mut hooks = HookRegistry::default();
@@ -214,6 +215,30 @@ async fn scenario() {
     let ransom_id = uid(&ransom["id"]);
     let small = uid(&t.insert(&rm, "Risk", risk("Printer jams", "cfo@secure.test", [2, 3, 2, 3, 1, 1], "Accept", json!([]))).await["id"]);
     assert_eq!(t.get("Risk", small).await["level"], "Medium", "6, at the tolerance: accepted without an acceptance");
+    // A risk says what could cause it and what it threatens.
+    let phishing = uid(&t.insert(&rm, "Threat", json!({"threat_name": "Phishing"})).await["id"]);
+    let theft = uid(&t.insert(&rm, "Threat", json!({"threat_name": "Laptop theft"})).await["id"]);
+    let weak = uid(&t.insert(&rm, "Vulnerability", json!({"vulnerability_name": "Reused passwords"})).await["id"]);
+    let cause = |threats: &[Uuid], vulns: &[Uuid]| {
+        json!({"threats": threats.iter().map(|x| json!({"threat": x.to_string()})).collect::<Vec<_>>(),
+               "vulnerabilities": vulns.iter().map(|x| json!({"vulnerability": x.to_string()})).collect::<Vec<_>>(),
+               "assets": [{"asset": "Customer database", "note": "Main region"}, {"asset": "Payroll files"}]})
+    };
+    t.set(&rm, "Risk", ransom_id, cause(&[phishing, theft], &[weak])).await.expect("its causes and its stakes");
+    let r = t.get("Risk", ransom_id).await;
+    assert_eq!(["threats", "vulnerabilities", "assets"].map(|k| r[k].as_array().unwrap().len()), [2, 1, 2], "read back");
+    // A threat is listed once on a risk; so is a vulnerability.
+    refused(t.set(&rm, "Risk", ransom_id, cause(&[phishing, phishing], &[weak])).await, "invalid", "a threat is listed once");
+    refused(t.set(&rm, "Risk", ransom_id, cause(&[phishing], &[weak, weak])).await, "invalid", "a vulnerability is listed once");
+    // A switched-off threat is not added, and stays where it was.
+    t.set(&rm, "Threat", theft, json!({"disabled": true})).await.unwrap();
+    let flood_threat = uid(&t.insert(&rm, "Threat", json!({"threat_name": "River flood", "disabled": true})).await["id"]);
+    refused(t.set(&rm, "Risk", small, cause(&[flood_threat], &[])).await, "invalid", "River flood is switched off");
+    t.set(&rm, "Risk", ransom_id, json!({"description": "Encrypted shares"})).await.expect("Laptop theft stays on the risk");
+    assert_eq!(t.get("Risk", ransom_id).await["threats"].as_array().unwrap().len(), 2);
+    // Who may keep the libraries: not a Risk Approver, who reads them.
+    refused(t.k.insert(&ra, "Threat", obj(json!({"threat_name": "Mine"}))).await, "forbidden", "");
+    t.k.get(&ra, "Threat", phishing, false).await.expect("an approver reads a threat");
     // The scale does not shrink below a score in use.
     let five = |high: i64| json!({"scale": 5, "medium_from": 5, "high_from": high, "critical_from": 17});
     refused(

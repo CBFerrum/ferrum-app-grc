@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.0
+
+Needs the same platform as 0.8.0. Package `grc` 0.8.0: entities Threat and Vulnerability and three tables on Risk
+(threats, vulnerabilities, assets). New connector package `grc_itsm` 0.1.0 (a configuration item on an asset row
+and on a control, where ITSM is installed). Existing risks have empty tables. `ui/dist` rebuilt for the new names.
+
+- **What could cause a risk and what it threatens.** Threats and vulnerabilities are the workspace's libraries,
+  each listed once on a risk; one switched off is not added and stays where it was. Assets are named on the risk.
+- **IT's records.** With ITSM installed, an asset and a control can name a configuration item. GRC works unchanged
+  without it.
+
 ## 0.8.0
 
 Needs the same platform as 0.7.0. Package `grc` 0.7.0: entity Assessment (`ComplianceAssessment`) with its rows

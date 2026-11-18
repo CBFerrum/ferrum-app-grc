@@ -189,12 +189,35 @@ mod tests {
         let yaml = "package: grc_lib_example\nversion: 0.1.0\nlabel: Example framework\ndepends: [grc]\nseed:\n  - entity: Framework\n    key: [framework_name]\n    records: [{framework_name: Example Framework, edition: \"1\"}]\n  - entity: Requirement\n    key: [framework, ref]\n    records:\n      - {framework: \"@Framework:framework_name=Example Framework\", ref: \"1\", title: Governance, assessable: false, sort_order: 1}\n      - {framework: \"@Framework:framework_name=Example Framework\", ref: \"1.1\", title: A policy exists, parent_ref: \"1\", sort_order: 2}\n";
         let example = ferrum_meta::catalog::load_embedded(&[("grc_lib_example", "package.yaml", yaml)]).expect("the example").remove(0);
         let mut all = ferrum_domain::packages().expect("platform packages");
-        all.extend(packages().expect("app packages"));
+        all.extend(packages().expect("app packages").into_iter().filter(|p| !p.manifest.depends.iter().any(|d| d == "itsm")));
         all.push(example);
         let catalog = ferrum_meta::Catalog::from_packages(all).unwrap_or_else(|e| panic!("{e}"));
         let names = ["grc_lib_example", "grc_lib_nist_csf"].map(String::from).to_vec();
         let schema = ferrum_meta::effective::build(&catalog, &catalog.closure(&names).unwrap(), &[], 1).unwrap_or_else(|e| panic!("{e}"));
         assert!(schema.warnings.is_empty(), "{:?}", schema.warnings);
+    }
+
+    /// The ITSM connector against a stand-in `itsm` package holding ConfigurationItem, as Contracts tests its own.
+    #[test]
+    fn the_package_and_its_connector_are_valid() {
+        let entities =
+            "- name: ConfigurationItem\n  label: Configuration Item\n  kind: master\n  title_field: ci_name\n  fields:\n    - {name: ci_name, type: data}\n";
+        let stand_in = ferrum_meta::catalog::load_embedded(&[
+            ("itsm", "package.yaml", "package: itsm\nversion: 0.0.1\ndepends: [core]\n"),
+            ("itsm", "entities/e.yaml", entities),
+        ])
+        .expect("stand-in")
+        .remove(0);
+        let mut all = ferrum_domain::packages().expect("platform packages");
+        all.extend(packages().expect("app packages"));
+        all.push(stand_in);
+        let catalog = ferrum_meta::Catalog::from_packages(all).unwrap_or_else(|e| panic!("{e}"));
+        let with = ferrum_meta::effective::build(&catalog, &catalog.closure(&["grc".to_string(), "grc_itsm".to_string()]).unwrap(), &[], 1)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(with.warnings.is_empty(), "{:?}", with.warnings);
+        assert!(with.entity("Control").unwrap().field("itsm_ci").is_some() && with.entity("RiskAsset").unwrap().field("itsm_ci").is_some());
+        let alone = ferrum_meta::effective::build(&catalog, &catalog.closure(&["grc".to_string()]).unwrap(), &[], 1).unwrap();
+        assert!(alone.entity("Control").unwrap().field("itsm_ci").is_none() && alone.entity("RiskAsset").unwrap().field("itsm_ci").is_none());
     }
 
     #[test]

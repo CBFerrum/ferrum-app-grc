@@ -1,6 +1,6 @@
 id: grc
 name: Governance and Risk
-version: 0.8.0
+version: 0.9.0
 publisher: cbferrum
 summary: "Risks scored on a matrix with their treatment and acceptance, controls tested with evidence, policies acknowledged by revision, and findings"
 description: README.md
@@ -41,7 +41,8 @@ contributes:
         (Due, Acknowledged, Withdrawn) is one person asked to acknowledge one revision by a day; those still Due have
         not acknowledged. A Framework holds Requirements in a tree (a Requirement's parent_ref names the one it sits
         under); a Control's requirements table lists the Requirements it answers. A Finding (Open, Remediating,
-        Closed) is a gap found. A ComplianceAssessment (In Progress, Complete) assesses one Framework, a row per
+        Closed) is a gap found. A Risk lists the Threats that could cause it, the Vulnerabilities they would use, and
+        the assets at stake (RiskAsset rows). A ComplianceAssessment (In Progress, Complete) assesses one Framework, a row per
         requirement with its result beside what the controls say, and its coverage.
       suggestions:
         - "What are our highest risks after their controls?"

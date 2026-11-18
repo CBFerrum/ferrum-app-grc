@@ -22,6 +22,41 @@
   fields:
     - {name: control, type: link, to: Control, required: true, in_list: true}
 
+- name: Threat
+  label: Threat
+  label_plural: Threats
+  kind: master
+  module: grc
+  title_field: threat_name
+  description: Something that could cause a risk to happen.
+  fields:
+    - {name: threat_name, type: data, required: true, unique: true, in_list: true, label: Name}
+    - {name: description, type: text}
+    - {name: disabled, type: check, in_list: true, in_filter: true}
+  list: {columns: [threat_name, disabled], sort: threat_name asc}
+
+- name: Vulnerability
+  label: Vulnerability
+  label_plural: Vulnerabilities
+  kind: master
+  module: grc
+  title_field: vulnerability_name
+  description: A weakness a threat could use.
+  fields:
+    - {name: vulnerability_name, type: data, required: true, unique: true, in_list: true, label: Name}
+    - {name: description, type: text}
+    - {name: disabled, type: check, in_list: true, in_filter: true}
+  list: {columns: [vulnerability_name, disabled], sort: vulnerability_name asc}
+
+- {name: RiskThreat, label: Threat, kind: child, fields: [{name: threat, type: link, to: Threat, required: true, in_list: true}]}
+- {name: RiskVulnerability, label: Vulnerability, kind: child, fields: [{name: vulnerability, type: link, to: Vulnerability, required: true, in_list: true}]}
+- name: RiskAsset
+  label: Asset
+  kind: child
+  fields:
+    - {name: asset, type: data, required: true, max_length: 200, in_list: true, description: "What is at stake: a system, a site, a data set, a supplier"}
+    - {name: note, type: data, max_length: 300, in_list: true}
+
 - name: Risk
   label: Risk
   label_plural: Risk Register
@@ -46,6 +81,9 @@
     - {name: level, type: select, options: [Low, Medium, High, Critical], read_only: true, in_list: true, in_filter: true, description: "The current score's"}
     - {name: treatment, type: select, options: [Open, Mitigate, Accept, Avoid, Transfer], default: Open, in_list: true, in_filter: true}
     - {name: controls, type: table, of: RiskControl}
+    - {name: threats, type: table, of: RiskThreat}
+    - {name: vulnerabilities, type: table, of: RiskVulnerability}
+    - {name: assets, type: table, of: RiskAsset, description: "What it threatens"}
     - {name: review_by, type: date, in_list: true}
   numbering: {template: "RSK-{YYYY}-{seq:4}"}
   list: {columns: [number, title, owner, current_score, level, treatment], sort: created_at desc}
