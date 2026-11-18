@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0
+
+Needs the same platform as 0.2.0. Package `grc` 0.2.0: new fields (`GrcSettings.reminder_days`, a hidden
+`reminded_for` on Risk Acceptance and Finding) added by the platform's schema sync; an existing workspace reads an
+empty `reminder_days` as 14. `ui/dist` rebuilt for the new setting's words.
+
+- **A decided acceptance keeps its terms.** Once an acceptance was accepted (or rejected, revoked, expired), a Risk
+  Manager could still change its expiry day, its reason or its risk, so the approver's decision covered something
+  they never saw. Now nobody can, an administrator included; propose a new acceptance. An acceptance whose day has
+  passed is no longer accepted.
+- **Expiry keeps a treatment chosen since.** An expired acceptance set its risk to Open even when the treatment had
+  been changed to Mitigate, Avoid or Transfer meanwhile. It now reopens only a risk still treated as Accept.
+- **People are told.** The risk's owner and the approver hear (message templates `grc.acceptance_expiring`,
+  `grc.acceptance_expired`) the reminder days before an acceptance ends and when it has; a finding's owner
+  (`grc.finding_due`, `grc.finding_overdue`) before it is due and when it goes overdue. Each once, even from two
+  upkeeps at once: the rows are held and the marker written in the same transaction.
+- **People's data and hand-over.** `personal_data` for its seven entities with addresses, and `handover` of a
+  leaver's risks, open controls, open findings and live policies.
+- **Every action says what done means** (`contract.completion` on all six).
+
 ## 0.2.0
 
 Needs Ferrum 0.4.0 (apps' upkeep runs one workspace at a time, on whichever replica is free). No database or interface change.

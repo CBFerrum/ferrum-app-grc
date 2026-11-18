@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.2.0-7c3aed?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.0-7c3aed?style=flat-square)](CHANGELOG.md)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
 ![Rust](https://img.shields.io/badge/Rust-server-b7410e?style=flat-square&logo=rust)
@@ -44,7 +44,7 @@ what and until when. It ships no control frameworks: a control names the framewo
 
 | | |
 |---|---|
-| **Version** | 0.2.0 (platform `>=0.4.0, <0.5`) |
+| **Version** | 0.3.0 (platform `>=0.4.0, <0.5`) |
 | **Kind** | Own interface at `/grc/`, plus Ferrum's generic records screens for every entity |
 | **What it adds** | 7 entities and a settings record (Risk, Control, Control Test, Risk Acceptance, Policy, Policy Acknowledgement, Finding), 2 child tables, 3 roles, 1 menu module, 3 numbered record types |
 | **Depends on** | Ferrum core only |
@@ -142,7 +142,12 @@ what and until when. It ships no control frameworks: a control names the framewo
 - **Revoke It.** A Risk Approver can take an accepted risk back. The risk is open again, unless another
   acceptance still holds it.
 - **Expiry.** At the next upkeep an accepted risk whose day has passed becomes Expired and the risk is open
-  again, unless another acceptance still holds it.
+  again, unless another acceptance still holds it or its treatment was changed meanwhile (Mitigate, Avoid or
+  Transfer stay as chosen). An acceptance whose day has passed cannot be accepted.
+- **Decided is kept.** Once accepted, rejected, revoked or expired, an acceptance keeps its risk, its reason and its
+  day, whoever edits it (an administrator too): what the approver decided on is what stands. Propose a new one.
+- **People are told.** The risk's owner and the approver get a message (e-mail, else in the app) the reminder days
+  before an accepted acceptance ends, and when it has ended. Each once.
 - **States.** Draft, Accepted, Rejected, Revoked and Expired.
 
 ### 🧰 Controls and tests
@@ -178,6 +183,8 @@ what and until when. It ships no control frameworks: a control names the framewo
   control and risk it concerns, an owner, a due day and a number such as `FND-2026-0001`.
 - **States.** Open, Remediating, Closed.
 - **Overdue.** Upkeep marks a finding left open past its day as overdue. Closed, it is no longer overdue.
+- **Its owner is told.** The reminder days before a finding is due, and when it goes overdue, each once. A closed
+  finding is nobody's errand.
 - **Closing needs a fix.** A closed finding must say how it was fixed in Remediation.
 
 ### ⚙️ Settings
@@ -186,6 +193,7 @@ what and until when. It ships no control frameworks: a control names the framewo
 |---|---|
 | **Tolerance** | The highest score, out of 25, that is accepted without a risk acceptance (default 6). |
 | **Test every (days)** | How long a control's test counts as current (default 365). |
+| **Reminder days** | How many days before an acceptance ends and before a finding is due their people are told (default 14; 0: no reminders; the notices when it has ended or is overdue still go). |
 
 ### 🔐 Roles and access
 
@@ -195,6 +203,12 @@ what and until when. It ships no control frameworks: a control names the framewo
 - **Policy Reader.** Reads published policies and acknowledges them.
 - **Separation of duties.** The owner of a risk cannot approve taking it on. Nobody but an approver decides.
 - **Audit trail.** Every change to every record is kept by the platform.
+- **People's data.** The package declares where it keeps addresses: risk, control, finding and policy owners,
+  testers, approvers and who acknowledged a policy. An erasure blanks a policy's owner; the others are kept as the
+  record of a decision, a test or an audit, and named in the answer. These reasons are the product's default; a
+  workspace whose own duty differs should say so to its people and change it.
+- **Hand-over.** When someone leaves, their risks, their planned and in-place controls, their open findings and their
+  draft and published policies pass to whoever takes over.
 
 ### 🌍 Interface
 
@@ -333,6 +347,8 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 ### ✅ Recently shipped
 
+- [x] **0.3.0.** A decided acceptance keeps its terms; expiry keeps a treatment chosen since; people are told
+  before acceptances end and findings fall due; its people's data declared and handed over.
 - [x] **0.2.0.** Upkeep runs one workspace at a time, on whichever replica is free; needs Ferrum 0.4.0.
 - [x] **0.1.18.** What is dated or checked "today" is on the workspace's day, not the UTC day.
 - [x] **0.1.17.** Rebuilt on Ferrum-Frontend 06bd1a2: its start through `mountApp`.
