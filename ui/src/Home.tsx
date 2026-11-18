@@ -39,15 +39,16 @@ export function Home() {
   const q = useQuery({
     queryKey: ["grc", "register"],
     queryFn: async () => {
-      const [risks, controls, findings, policies, asks] = await Promise.all([
+      const [risks, controls, findings, policies, asks, assessments] = await Promise.all([
         rows("Risk", []),
         rows("Control", [["status", "eq", "In Place"], ["effective", "eq", false]]),
         rows("Finding", [["status", "!=", "Closed"]], { sort: "due_on asc" }),
         rows("Policy", [["status", "eq", "Published"]], { sort: "title asc" }),
         // A reader is served their own asks; a Risk Manager everyone's.
         rows("PolicyAttestation", [["status", "eq", "Due"]], { sort: "due_on asc", titles: "true" }),
+        rows("ComplianceAssessment", [["status", "eq", "In Progress"]], { sort: "created_at desc", titles: "true" }),
       ]);
-      return { risks: worstFirst(risks), controls, findings, policies, asks };
+      return { risks: worstFirst(risks), controls, findings, policies, asks, assessments };
     },
   });
   const create = (
@@ -67,7 +68,7 @@ export function Home() {
       <LoadFailed error={q.error} onRetry={() => void q.refetch()} />
     </PageStack>
   );
-  const { risks, controls, policies, asks } = q.data;
+  const { risks, controls, policies, asks, assessments } = q.data;
   // What is late comes before what is merely due.
   const findings = [...q.data.findings].sort((a, b) => Number(Boolean(b.overdue)) - Number(Boolean(a.overdue)));
   const summary = [findings.length && t("{n} open findings", { n: findings.length }), controls.length && t("{n} controls to test", { n: controls.length })].filter(Boolean).join(" · ");
@@ -99,6 +100,19 @@ export function Home() {
                 title={isolate(String((a._titles as Record<string, unknown> | undefined)?.policy ?? a.policy))}
                 meta={isolate([manages ? String(a.person ?? "") : "", a.due_on ? t("due {day}", { day: day(a.due_on) }) : ""].filter(Boolean).join(" · "))}
                 trailing={a.overdue ? <Badge tone="red">{t("Overdue")}</Badge> : null}
+              />
+            ))}
+          </Queue>
+        )}
+        {assessments.length > 0 && (
+          <Queue title={t("Assessments")} count={assessments.length} more={{ to: "/e/ComplianceAssessment", count: assessments.length - LIMIT }}>
+            {assessments.slice(0, LIMIT).map((a) => (
+              <QueueItem
+                key={a.id}
+                to={`/e/ComplianceAssessment/${a.id}`}
+                title={isolate(String(a.title))}
+                meta={isolate(String((a._titles as Record<string, unknown> | undefined)?.framework ?? ""))}
+                trailing={a.coverage == null ? null : <Badge tone="neutral">{t("{n} %", { n: String(Number(a.coverage)) })}</Badge>}
               />
             ))}
           </Queue>

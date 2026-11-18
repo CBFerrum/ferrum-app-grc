@@ -654,6 +654,122 @@ async fn scenario() {
     refused(t.k.import_rows(&ra, "Requirement", &sheet(&["E"])).await, "forbidden", "");
     assert!(!t.k.list(&ra, "Requirement", &ListQuery::default()).await.unwrap().rows.is_empty());
 
+    // ───────────── compliance assessments ─────────────
+    let base = uid(&t.insert(&rm, "Framework", fw("Assessment baseline")).await["id"]);
+    t.insert(&rm, "Requirement", req(base, "H", None, false)).await;
+    let r: Vec<Uuid> = {
+        let mut v = vec![];
+        for r in ["H.1", "H.2", "H.3", "H.4"] {
+            v.push(uid(&t.insert(&rm, "Requirement", req(base, r, Some("H"), true)).await["id"]));
+        }
+        v
+    };
+    let control = |name: &str, status: &str, answers: &[Uuid]| {
+        let mut c = json!({"control_name": name, "status": status});
+        c["requirements"] = maps(answers)["requirements"].clone();
+        c
+    };
+    let good = uid(&t.insert(&rm, "Control", control("Good control", "In Place", &[r[0], r[2]])).await["id"]);
+    let bad = uid(&t.insert(&rm, "Control", control("Bad control", "In Place", &[r[1], r[2]])).await["id"]);
+    t.insert(&rm, "Control", control("Planned control", "Planned", &[r[3]])).await;
+    t.insert(&rm, "ControlTest", test(good, today.to_string(), "Effective", proof.clone())).await;
+    t.insert(&rm, "ControlTest", test(bad, today.to_string(), "Ineffective", json!([]))).await;
+    // A new assessment has a row per assessable requirement, and the controls speak for each.
+    let asm =
+        uid(&t.insert(&rm, "ComplianceAssessment", json!({"title": "2026 assessment", "framework": base.to_string(), "owner": "rm@secure.test"})).await["id"]);
+    let rows_of = |d: &Doc| -> Vec<(Uuid, String, String, i64, Uuid)> {
+        d["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| {
+                (
+                    uid(&x["requirement"]),
+                    x["result"].as_str().unwrap().into(),
+                    x["suggested"].as_str().unwrap().into(),
+                    x["controls"].as_i64().unwrap(),
+                    uid(&x["id"]),
+                )
+            })
+            .collect()
+    };
+    let said = |d: &Doc| rows_of(d).into_iter().map(|(q, _, s, n, _)| (q, s, n)).collect::<Vec<_>>();
+    assert_eq!(
+        said(&t.get("ComplianceAssessment", asm).await),
+        [
+            (r[0], "Compliant".to_string(), 1),
+            (r[1], "Non-Compliant".to_string(), 1),
+            (r[2], "Partially Compliant".to_string(), 2),
+            (r[3], "Not Assessed".to_string(), 0)
+        ],
+        "four rows, none for the heading"
+    );
+    // Refreshing adds what the framework gained and keeps what was entered.
+    let set_results = |d: &Doc, results: &[(usize, &str)]| {
+        let rows = rows_of(d);
+        json!({"rows": rows.iter().enumerate().map(|(i, row)| match results.iter().find(|(j, _)| *j == i) {
+            Some((_, res)) => json!({"id": row.4.to_string(), "result": res}),
+            None => json!({"id": row.4.to_string()}),
+        }).collect::<Vec<_>>()})
+    };
+    let d = t.get("ComplianceAssessment", asm).await;
+    t.set(&rm, "ComplianceAssessment", asm, set_results(&d, &[(1, "Not Applicable")])).await.expect("a result entered");
+    let r5 = uid(&t.insert(&rm, "Requirement", req(base, "H.5", Some("H"), true)).await["id"]);
+    let out = t.act(&rm, "ComplianceAssessment", asm, "refresh_assessment").await.unwrap();
+    assert_eq!((out["rows"].as_i64(), out["added"].as_i64()), (Some(5), Some(1)));
+    let d = t.get("ComplianceAssessment", asm).await;
+    assert_eq!((rows_of(&d)[1].1.as_str(), rows_of(&d)[4].0), ("Not Applicable", r5), "kept, and the new one appended");
+    // Taking the suggestions fills only what was not assessed.
+    assert_eq!(t.act(&rm, "ComplianceAssessment", asm, "accept_suggestions").await.unwrap()["taken"], 2);
+    let results = |d: &Doc| rows_of(d).into_iter().map(|x| x.1).collect::<Vec<_>>();
+    let d = t.get("ComplianceAssessment", asm).await;
+    assert_eq!(results(&d), ["Compliant", "Not Applicable", "Partially Compliant", "Not Assessed", "Not Assessed"]);
+    // It completes only when every requirement is assessed.
+    refused(t.act(&rm, "ComplianceAssessment", asm, "complete_assessment").await, "invalid", "2 requirements are not assessed");
+    // The counts and the coverage.
+    t.set(&rm, "ComplianceAssessment", asm, set_results(&d, &[(3, "Compliant"), (4, "Not Applicable")])).await.unwrap();
+    let d = t.get("ComplianceAssessment", asm).await;
+    let counts = ["requirements", "compliant", "partial", "non_compliant", "not_applicable", "not_assessed"].map(|k| d[k].as_i64().unwrap());
+    assert_eq!(counts, [5, 2, 1, 0, 2, 0]);
+    let coverage = d["coverage"].as_str().map(|c| c.parse::<f64>().unwrap()).or(d["coverage"].as_f64());
+    assert_eq!(coverage, Some(66.67), "two of the three that apply");
+    let out = t.act(&rm, "ComplianceAssessment", asm, "complete_assessment").await.unwrap();
+    assert_eq!(out["status"], "Complete");
+    let done = t.get("ComplianceAssessment", asm).await;
+    assert_eq!(done["completed_on"], json!(today.to_string()));
+    refused(t.set(&rm, "ComplianceAssessment", asm, set_results(&done, &[(0, "Non-Compliant")])).await, "invalid", "kept as it was");
+    for action in ["refresh_assessment", "accept_suggestions", "complete_assessment"] {
+        refused(t.act(&rm, "ComplianceAssessment", asm, action).await, "invalid", "not available");
+    }
+    // Every row not applicable: no coverage. Rows come from the framework.
+    let second =
+        uid(&t.insert(&rm, "ComplianceAssessment", json!({"title": "Second look", "framework": base.to_string(), "owner": "rm@secure.test"})).await["id"]);
+    let d = t.get("ComplianceAssessment", second).await;
+    t.set(
+        &rm,
+        "ComplianceAssessment",
+        second,
+        set_results(&d, &[(0, "Not Applicable"), (1, "Not Applicable"), (2, "Not Applicable"), (3, "Not Applicable"), (4, "Not Applicable")]),
+    )
+    .await
+    .unwrap();
+    assert!(t.get("ComplianceAssessment", second).await["coverage"].is_null(), "nothing applies");
+    let mut fewer = set_results(&d, &[]);
+    fewer["rows"].as_array_mut().unwrap().pop();
+    refused(t.set(&rm, "ComplianceAssessment", second, fewer).await, "invalid", "rows come from the framework");
+    let mut more = set_results(&d, &[]);
+    more["rows"].as_array_mut().unwrap().push(json!({"requirement": r[0].to_string(), "result": "Compliant"}));
+    // A row's requirement is read-only, so the platform refuses a person's new row before the app's own words.
+    refused(t.set(&rm, "ComplianceAssessment", second, more).await, "invalid", "Requirement is required");
+    // Who may: a Risk Approver reads and is refused the actions; a Policy Reader does not read.
+    t.k.get(&ra, "ComplianceAssessment", second, false).await.expect("an approver reads");
+    refused(t.act(&ra, "ComplianceAssessment", second, "refresh_assessment").await, "forbidden", "");
+    assert!(t.k.get(&reader, "ComplianceAssessment", second, false).await.is_err(), "a reader does not");
+    // A control going stale later does not change a completed assessment.
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(400)).await.unwrap();
+    assert_eq!(t.get("Control", good).await["effective"], false, "stale by now");
+    assert_eq!(rows_of(&t.get("ComplianceAssessment", asm).await), rows_of(&done), "as it was completed");
+
     // ───────────── who may do what ─────────────
     refused(t.k.insert(&ra, "Risk", obj(risk("Mine", "ra@secure.test", [1, 1, 1, 1, 1, 1], "Open", json!([])))).await, "forbidden", "");
     refused(t.k.insert(&reader, "Policy", obj(json!({"title": "Mine", "text": "x"}))).await, "forbidden", "");
@@ -664,16 +780,19 @@ async fn scenario() {
     let mut declared: Vec<&str> = grc.manifest.personal_data.iter().map(|d| d.entity.as_str()).collect();
     declared.sort();
     declared.dedup();
-    assert_eq!(declared, ["Control", "ControlTest", "Finding", "Policy", "PolicyAcknowledgement", "PolicyAttestation", "Risk", "RiskAcceptance"]);
+    assert_eq!(
+        declared,
+        ["ComplianceAssessment", "Control", "ControlTest", "Finding", "Policy", "PolicyAcknowledgement", "PolicyAttestation", "Risk", "RiskAcceptance"]
+    );
     let mut handed: Vec<&str> = grc.manifest.handover.iter().map(|h| h.entity.as_str()).collect();
     handed.sort();
-    assert_eq!(handed, ["Control", "Finding", "Policy", "Risk"]);
+    assert_eq!(handed, ["ComplianceAssessment", "Control", "Finding", "Policy", "Risk"]);
     let theirs = t.k.personal_data(&t.admin, "rm@secure.test").await.expect("their data").to_string();
     for f in [f1, f2, f3, quiet] {
         assert!(theirs.contains(&f.to_string()), "the findings rm owns are hers: {f}");
     }
     let actions: Vec<_> = grc.entities.iter().flat_map(|e| e.actions.iter()).collect();
-    assert_eq!(actions.len(), 6);
+    assert_eq!(actions.len(), 9);
     for a in actions {
         assert!(a.contract.as_ref().and_then(|c| c.completion.as_deref()).is_some_and(|c| !c.is_empty()), "{} says what done means", a.name);
     }

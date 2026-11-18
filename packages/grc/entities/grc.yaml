@@ -92,6 +92,57 @@
   fields:
     - {name: requirement, type: link, to: Requirement, required: true, in_list: true}
 
+- name: AssessmentRow
+  label: Requirement
+  kind: child
+  fields:
+    - {name: requirement, type: link, to: Requirement, required: true, read_only: true, in_list: true}
+    - {name: result, type: select, options: [Not Assessed, Compliant, Partially Compliant, Non-Compliant, Not Applicable], default: Not Assessed, in_list: true}
+    - {name: suggested, type: select, options: [Not Assessed, Compliant, Partially Compliant, Non-Compliant], read_only: true, in_list: true, label: Controls Say}
+    - {name: controls, type: int, read_only: true, in_list: true, description: "Controls in place that answer it"}
+    - {name: note, type: text}
+
+- name: ComplianceAssessment
+  label: Assessment
+  label_plural: Assessments
+  kind: master
+  module: grc
+  title_field: title
+  description: How the organisation stands against one framework, requirement by requirement, as of a day.
+  fields:
+    - {name: title, type: data, required: true, in_list: true}
+    - {name: framework, type: link, to: Framework, required: true, in_list: true, in_filter: true}
+    - {name: owner, type: email, required: true, in_list: true, in_filter: true}
+    - {name: due_on, type: date, in_list: true}
+    - {name: status, type: select, options: [In Progress, Complete], default: In Progress, read_only: true, no_copy: true, in_list: true, in_filter: true}
+    - {name: completed_on, type: date, read_only: true, no_copy: true}
+    - {name: rows, type: table, of: AssessmentRow, no_copy: true}
+    - {name: requirements, type: int, read_only: true, no_copy: true}
+    - {name: compliant, type: int, read_only: true, no_copy: true}
+    - {name: partial, type: int, read_only: true, no_copy: true, label: Partially Compliant}
+    - {name: non_compliant, type: int, read_only: true, no_copy: true}
+    - {name: not_applicable, type: int, read_only: true, no_copy: true}
+    - {name: not_assessed, type: int, read_only: true, no_copy: true}
+    - {name: coverage, type: percent, read_only: true, no_copy: true, in_list: true, description: "Compliant requirements out of those that apply"}
+  actions:
+    - name: refresh_assessment
+      label: Refresh It
+      permission: write
+      condition: "doc.status == 'In Progress'"
+      contract: {completion: "Every assessable requirement of the framework has a row, and each row shows what its controls say today; results already entered are unchanged"}
+    - name: accept_suggestions
+      label: Use What the Controls Say
+      permission: write
+      condition: "doc.status == 'In Progress'"
+      contract: {completion: "Each row still Not Assessed whose controls say something takes that as its result; other rows are unchanged"}
+    - name: complete_assessment
+      label: Complete It
+      permission: write
+      condition: "doc.status == 'In Progress'"
+      contract: {completion: "The assessment is Complete on the workspace's day; its rows can no longer be changed"}
+  numbering: {template: "ASM-{YYYY}-{seq:4}"}
+  list: {columns: [number, title, framework, owner, coverage, status], sort: created_at desc}
+
 - name: ControlEvidence
   label: Evidence
   kind: child

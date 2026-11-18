@@ -8,12 +8,14 @@
 //!   stale; findings overdue when late, and closed saying how.
 //! * `policies`: revisions published with their text, and acknowledgements of a revision.
 //! * `frameworks`: requirements in a tree by reference, and the requirements a control answers.
+//! * `assessments`: a framework assessed requirement by requirement, beside what the controls say, and coverage.
 //!
 //! Adapted from CISO Assistant's risk scenarios, applied controls, risk acceptances, frameworks and
 //! requirement nodes (AGPL-3.0; docs/PROVENANCE.md). Hooks are registered per entity, so a workspace
 //! without the `grc` package never runs them. No framework's text is in this code, nor any
 //! certification claimed: frameworks are data, a sheet or a library package of seed records.
 
+mod assessments;
 mod controls;
 mod frameworks;
 mod policies;
@@ -47,6 +49,7 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("ControlTest", Arc::new(controls::TestHook))
         .register("Control", Arc::new(frameworks::ControlHook))
         .register("Requirement", Arc::new(frameworks::RequirementHook))
+        .register("ComplianceAssessment", Arc::new(assessments::AssessmentHook))
         .register("Finding", Arc::new(controls::FindingHook))
         .register("Policy", Arc::new(policies::PolicyHook));
 }

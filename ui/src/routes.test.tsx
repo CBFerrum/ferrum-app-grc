@@ -11,6 +11,9 @@ import { setFrameMode } from "@ferrum/records/frame";
 import me from "./fixtures/me.json";
 import { GRC_PACKAGES, routes } from "./routes";
 
+// The first test loads the whole page's modules: on a machine busy building, more than vitest's five seconds.
+vi.setConfig({ testTimeout: 30000 });
+
 let write = "none";
 /** Policy's description as the server gives it, its fields left out: the home reads only its rights. */
 const policyMeta = (w: string) => ({
@@ -24,6 +27,8 @@ const asks = [
   { id: "a2", policy: "p2", _titles: { policy: "Clean desk" }, person: "pat@secure.test", revision: 1, due_on: "2026-11-10", status: "Due", overdue: true },
 ];
 
+const assessments = [{ id: "c1", title: "2026 assessment", framework: "f1", _titles: { framework: "Our baseline" }, status: "In Progress", coverage: "66.67" }];
+
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   (globalThis as { matchMedia?: unknown }).matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
@@ -36,6 +41,7 @@ beforeEach(() => {
       if (path === "/api/meta") return json({ entities: [], modules: [], reports: [] });
       if (path === "/api/meta/Policy") return json(policyMeta(write));
       if (path === "/api/v1/PolicyAttestation") return json({ rows: asks, total: asks.length });
+      if (path === "/api/v1/ComplianceAssessment") return json({ rows: assessments, total: assessments.length });
       return json({ rows: [], total: 0 });
     }),
   );
@@ -55,7 +61,8 @@ async function home() {
       </QueryClientProvider>,
     );
   });
-  for (let i = 0; i < 40; i++) await act(async () => void (await new Promise((r) => setTimeout(r, 25))));
+  // Until the page has loaded (its Policies queue is drawn), at most ten seconds on a busy machine.
+  for (let i = 0; i < 400 && !(host.textContent ?? "").includes("Policies"); i++) await act(async () => void (await new Promise((r) => setTimeout(r, 25))));
   const text = host.textContent ?? "";
   const links = [...host.querySelectorAll("a")].map((a) => a.getAttribute("href"));
   await act(async () => root.unmount());
@@ -72,6 +79,16 @@ describe("the home", () => {
     expect(text).toContain("Clean desk");
     expect(text).toContain("Overdue");
     expect(links).toContain("/e/Policy/p1");
+  });
+
+  it("the home page shows assessments in progress with their coverage", async () => {
+    write = "all";
+    const { text, links } = await home();
+    expect(text).toContain("Assessments");
+    expect(text).toContain("2026 assessment");
+    expect(text).toContain("Our baseline");
+    expect(text).toContain("66.67 %");
+    expect(links).toContain("/e/ComplianceAssessment/c1");
   });
 
   it("a Risk Manager's home names who has not acknowledged", async () => {

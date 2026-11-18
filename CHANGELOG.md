@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0
+
+Needs the same platform as 0.7.0. Package `grc` 0.7.0: entity Assessment (`ComplianceAssessment`) with its rows
+and three actions. Nothing changes for existing records. `ui/dist` rebuilt: the home's Assessments queue.
+
+- **Assess a framework.** A row per assessable requirement, what its controls say today beside the assessor's
+  result, counts and coverage. Refresh It, Use What the Controls Say (only rows not yet assessed) and Complete It
+  (when every row is assessed), each with its contract. A completed assessment is kept as it was.
+
 ## 0.7.0
 
 Needs the same platform as 0.6.0. Package `grc` 0.6.0: entities Framework and Requirement, and a Requirements

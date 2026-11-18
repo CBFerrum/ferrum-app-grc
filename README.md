@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.7.0-7c3aed?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.0-7c3aed?style=flat-square)](CHANGELOG.md)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
 ![Rust](https://img.shields.io/badge/Rust-server-b7410e?style=flat-square&logo=rust)
@@ -44,9 +44,9 @@ what and until when. It ships no control frameworks: a control names the framewo
 
 | | |
 |---|---|
-| **Version** | 0.7.0 (platform `>=0.4.0, <0.5`) |
+| **Version** | 0.8.0 (platform `>=0.4.0, <0.5`) |
 | **Kind** | Own interface at `/grc/`, plus Ferrum's generic records screens for every entity |
-| **What it adds** | 10 entities and a settings record (Risk, Control, Control Test, Framework, Requirement, Risk Acceptance, Policy, Policy Acknowledgement, Attestation, Finding), 4 child tables, 3 roles, 1 menu module, 3 numbered record types |
+| **What it adds** | 11 entities and a settings record (Risk, Control, Control Test, Framework, Requirement, Assessment, Risk Acceptance, Policy, Policy Acknowledgement, Attestation, Finding), 5 child tables, 3 roles, 1 menu module, 3 numbered record types |
 | **Depends on** | Ferrum core only |
 | **Works with** | The Ferrum assistant, audit trail, notifications and Studio; no other app is required |
 | **Languages** | English, Arabic (right to left), Hindi; a workspace can change any interface word |
@@ -207,6 +207,21 @@ seed:
       - {framework: "@Framework:framework_name=Example Framework", ref: "1.1", title: A policy exists, parent_ref: "1", sort_order: 2}
 ```
 
+### 📋 Assessments
+
+- **Assessment.** How the organisation stands against one framework, as of a day: a title, the framework, an
+  owner, a due day and a number such as `ASM-2026-0001`. It opens with a row per assessable requirement.
+- **What the controls say.** Each row shows the in-place controls mapped to its requirement and what they say:
+  all effective, Compliant; none, Non-Compliant; some, Partially Compliant; none mapped or in place, nothing.
+- **The result is a person's.** Each row's result (Compliant, Partially Compliant, Non-Compliant, Not
+  Applicable) and note. **Use What the Controls Say** fills only rows not assessed yet; nothing overwrites a
+  result someone entered.
+- **Refresh It** adds rows for requirements the framework gained and updates what the controls say. Rows come
+  from the framework: a person cannot add or remove them.
+- **Counts and coverage.** Each result counted; coverage is compliant out of the requirements that apply.
+- **Complete It** when every requirement is assessed: dated, and kept as it was, even when a control goes stale
+  later. The list of assessments is the coverage across frameworks; the home page shows those in progress.
+
 ### 📜 Policies
 
 - **Policy.** A unique title, owner, text (markdown), a review-by date and a state (Draft, Published, Retired).
@@ -315,6 +330,7 @@ Each person acknowledges each revision once. New text means a new revision and a
 | **Control** | What keeps a risk down | Name, category, owner, status (Planned, In Place, Retired), references, requirements, last tested on, last result, effective |
 | **Framework** | A set of requirements | Name, edition, publisher, source link, description, disabled |
 | **Requirement** | One requirement or heading | Framework, reference, title, text, under, assessable, sort order |
+| **Assessment** | A framework assessed as of a day | Number, title, framework, owner, due on, status (In Progress, Complete), completed on, rows (requirement, result, what the controls say, controls, note), counts, coverage |
 | **Control Test** | A test on a day | Control, tested on, tester, result, evidence rows, notes |
 | **Risk Acceptance** | A risk taken on for a time | Number, risk, justification, expires on, status, approver, decided on |
 | **Policy** | What people follow | Title, owner, text, status, revision, published text, published on, review by |
@@ -352,18 +368,18 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
 | Risk register with scoring | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Inherent, current and residual scores | ✅ | ✅ | ✅ | ✅ | 🟡 | ✅ |
-| Custom matrices and scales | 🟡⁶ | ✅ | ✅ | ✅ | 🟡 | 🟡 |
+| Custom matrices and scales | 🟡⁸ | ✅ | ✅ | ✅ | 🟡 | 🟡 |
 | Assets, threats and vulnerabilities on risks | ❌ | ✅ | ✅ | ✅ | 🟡 | ✅ |
 | Control library with owners and status | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Control tests that need evidence | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Frameworks and requirements with control mapping | 🟡¹ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Compliance assessment and coverage across frameworks | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Compliance assessment and coverage across frameworks | 🟡⁹ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Automated evidence from cloud, identity and code systems | ❌ | 🟡 | 🟡 | 🟡 | ✅ | ❌ |
 | Risk acceptance with approver and expiry | ✅ | ✅ | ✅ | ✅ | 🟡 | ✅ |
 | Several approvers and reminders before expiry | ❌ | ✅ | ✅ | ✅ | 🟡 | 🟡 |
 | Policy revisions kept | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Acknowledgement of each revision | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 |
-| Attestation campaigns with audience and reminders | 🟡⁵ | ✅ | ✅ | ✅ | ✅ | 🟡 |
+| Attestation campaigns with audience and reminders | 🟡⁷ | ✅ | ✅ | ✅ | ✅ | 🟡 |
 | Findings with owner, severity and due day | ✅ | ✅ | ✅ | ✅ | 🟡 | ✅ |
 | Remediation plans with milestones and retest | 🟡² | ✅ | ✅ | ✅ | 🟡 | 🟡 |
 | Audit engagements and auditor access | ❌ | ✅ | ✅ | ✅ | ✅ | 🟡 |
@@ -377,14 +393,14 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 | Open source | ✅ | ❌ | ❌ | ❌ | ❌ | 🟡⁶ |
 
 ¹ Frameworks and requirements as records, mapped from controls; one library shipped (NIST CSF 2.0 functions and categories); no mapping between frameworks.
-
 ² Steps with owners and days, and a required retest; no reminders or approval per step.
 ³ The home page lists queues; there is no heat map or shipped report.
 ⁴ Same platform and database as the other Ferrum apps; no connector that collects evidence from them yet.
-⁵ The audience is one role per policy and a revision is the campaign; no audience by team or list of people yet.
-⁶ One matrix per workspace with four levels; its size and the levels' edges are settings, with no axis labels.
 ⁵ On-premises or private cloud options exist for some products.
 ⁶ Eramba has a free community edition and a paid enterprise edition.
+⁷ The audience is one role per policy and a revision is the campaign; no audience by team or list of people yet.
+⁸ One matrix per workspace with four levels; its size and the levels' edges are settings, with no axis labels.
+⁹ Assessments of a framework with results beside what the controls say, counts and coverage; no scores, maturity levels or implementation groups.
 
 ### 🏆 Where Governance and Risk stands out
 
@@ -412,6 +428,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 ### ✅ Recently shipped
 
+- [x] **0.8.0.** Compliance assessments: a result per requirement beside what the controls say, and coverage.
 - [x] **0.7.0.** Frameworks and requirements as records, controls mapped to them, libraries as packages of seed records.
 - [x] **0.6.0.** A finding's fix as steps with owners and days, and a retest of its control before it closes.
 - [x] **0.5.0.** The matrix as settings: its size and the levels' bands, risks re-levelled when they change.
@@ -431,7 +448,6 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 ### 🔜 Next up
 
-- [ ] **Compliance assessments** of a framework against the controls in place.
 - [ ] **Several approvers** on an acceptance.
 - [ ] **Reports**: risk heat map, control coverage, overdue findings and an audit export.
 - [ ] **Test assignment.** A test due on a day for a named tester.

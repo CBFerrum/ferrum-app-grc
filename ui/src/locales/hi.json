@@ -1,4 +1,5 @@
 {
+  "Assessments": "आकलन",
   "Awaiting acknowledgement": "स्वीकृति की प्रतीक्षा",
   "Controls to test": "जाँचने के लिए नियंत्रण",
   "Go to the register": "रजिस्टर पर जाएँ",
@@ -13,6 +14,7 @@
   "last tested {day}": "पिछला परीक्षण {day}",
   "never tested": "कभी परीक्षण नहीं हुआ",
   "revision {revision}": "संशोधन {revision}",
+  "{n} %": "{n} %",
   "{n} controls to test": "{n} नियंत्रण जाँचने हैं",
   "{n} open findings": "{n} खुले निष्कर्ष"
 }
