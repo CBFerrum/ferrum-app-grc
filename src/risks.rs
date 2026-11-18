@@ -5,7 +5,7 @@
 //! who does not own it, until it expires, when the risk is open again (CISO Assistant's risk
 //! scenarios and acceptances).
 
-use crate::{obj, tolerance};
+use crate::{obj, tell, tolerance};
 use async_trait::async_trait;
 use chrono::NaiveDate;
 use ferrum_domain::util::{elevated, id, rows, s};
@@ -64,7 +64,9 @@ impl DocHook for RiskHook {
         }
         match s(doc, "treatment") {
             Some("Mitigate") if rows(doc, "controls").is_empty() => return Err(Error::field("controls", "mitigating names the controls that do it")),
-            Some("Accept") if n(doc, "current_score") > tolerance(hc.tx, hc.ctx.tenant).await? && !accepted(hc.tx, hc.ctx, id(doc, "id")).await? => {
+            Some("Accept")
+                if n(doc, "current_score") > tolerance(hc.tx, hc.ctx.tenant).await? && !accepted(hc.tx, hc.ctx, id(doc, "id"), hc.ctx.today()).await? =>
+            {
                 return Err(Error::field("treatment", "a risk above the tolerance is accepted only with an approved acceptance"));
             }
             _ => {}
@@ -73,13 +75,13 @@ impl DocHook for RiskHook {
     }
 }
 
-/// Whether `risk` has an acceptance approved and not yet expired on the workspace's day.
-async fn accepted(tx: &mut Tx, ctx: &Ctx, risk: Option<Uuid>) -> Result<bool> {
+/// Whether `risk` has an acceptance approved and not yet expired on `day`.
+async fn accepted(tx: &mut Tx, ctx: &Ctx, risk: Option<Uuid>, day: NaiveDate) -> Result<bool> {
     let Some(risk) = risk else { return Ok(false) };
     Ok(sqlx::query_scalar("select exists(select 1 from e_risk_acceptance where tenant_id = $1 and risk = $2 and status = 'Accepted' and expires_on >= $3)")
         .bind(ctx.tenant)
         .bind(risk)
-        .bind(ctx.today())
+        .bind(day)
         .fetch_one(&mut **tx)
         .await?)
 }
@@ -99,6 +101,19 @@ impl DocHook for AcceptanceHook {
         Ok(())
     }
 
+    /// What an approver decided on is what stands: once decided, an acceptance keeps its risk, its reason and its
+    /// day, whoever edits it. Only the app's own writes (status, approver, day decided) go through.
+    async fn validate_change(&self, hc: &mut HookCtx<'_>, old: Option<&Doc>, doc: &Doc) -> Result<()> {
+        let Some(old) = old else { return Ok(()) };
+        if hc.ctx.is_system || matches!(s(old, "status"), None | Some("Draft")) {
+            return Ok(());
+        }
+        if ["risk", "justification", "expires_on"].iter().any(|f| old.get(*f) != doc.get(*f)) {
+            return Err(Error::invalid("a decided acceptance keeps its risk, its reason and its day: propose a new one"));
+        }
+        Ok(())
+    }
+
     async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, _params: &Value) -> Result<Option<Value>> {
         let acceptance = id(doc, "id").ok_or_else(|| Error::internal("an acceptance without an id"))?;
         let risk_id = id(doc, "risk").ok_or_else(|| Error::field("risk", "is required"))?;
@@ -113,6 +128,9 @@ impl DocHook for AcceptanceHook {
                 let risk = hc.kernel.get_tx(&system, hc.tx, "Risk", risk_id, false).await?;
                 if s(&risk, "owner").is_some_and(|o| o.eq_ignore_ascii_case(&hc.ctx.email)) {
                     return Err(Error::Forbidden("a risk's owner does not approve taking it on".into()));
+                }
+                if name == "accept_risk" && s(doc, "expires_on").is_some_and(|e| e <= today.as_str()) {
+                    return Err(Error::field("expires_on", "has passed: propose it again with a later day"));
                 }
                 let to = if name == "accept_risk" { "Accepted" } else { "Rejected" };
                 json!({"status": to, "approver": hc.ctx.email, "decided_on": today})
@@ -130,15 +148,16 @@ impl DocHook for AcceptanceHook {
         if status == "Accepted" {
             hc.kernel.set_values_tx(&system, hc.tx, "Risk", risk_id, obj(json!({"treatment": "Accept"}))).await?;
         } else if status == "Revoked" {
-            reopen(hc.kernel, &system, hc.tx, risk_id).await?;
+            reopen(hc.kernel, &system, hc.tx, risk_id, hc.ctx.today()).await?;
         }
         Ok(Some(json!({"status": status})))
     }
 }
 
-/// A risk whose acceptance ended, open again unless another acceptance still holds it.
-async fn reopen(k: &Kernel, ctx: &Ctx, tx: &mut Tx, risk: Uuid) -> Result<()> {
-    if !accepted(tx, ctx, Some(risk)).await? {
+/// A risk whose acceptance ended on `day`, open again unless another acceptance still holds it or it is treated
+/// another way by now.
+async fn reopen(k: &Kernel, ctx: &Ctx, tx: &mut Tx, risk: Uuid, day: NaiveDate) -> Result<()> {
+    if !accepted(tx, ctx, Some(risk), day).await? {
         let treatment: Option<String> = sqlx::query_scalar("select treatment from e_risk where tenant_id = $1 and id = $2")
             .bind(ctx.tenant)
             .bind(risk)
@@ -152,26 +171,49 @@ async fn reopen(k: &Kernel, ctx: &Ctx, tx: &mut Tx, risk: Uuid) -> Result<()> {
     Ok(())
 }
 
-/// Acceptances past their day, expired, and their risks open again.
+/// Acceptances past their day, expired, their risks open again unless treated another way meanwhile, and the risk's
+/// owner and the approver told. Rows are held, so two upkeeps at once expire and tell once.
 pub(crate) async fn expire(k: &Kernel, ctx: &Ctx, tx: &mut Tx, today: NaiveDate) -> Result<()> {
-    let due: Vec<(Uuid, Uuid)> = sqlx::query_as("select id, risk from e_risk_acceptance where tenant_id = $1 and status = 'Accepted' and expires_on < $2")
-        .bind(ctx.tenant)
-        .bind(today)
-        .fetch_all(&mut **tx)
-        .await?;
-    for (acceptance, risk) in due {
+    let due: Vec<(Uuid, Uuid, Option<String>)> = sqlx::query_as(
+        "select id, risk, approver from e_risk_acceptance where tenant_id = $1 and status = 'Accepted' and expires_on < $2 order by id for update",
+    )
+    .bind(ctx.tenant)
+    .bind(today)
+    .fetch_all(&mut **tx)
+    .await?;
+    for (acceptance, risk, approver) in due {
         k.set_values_tx(ctx, tx, "RiskAcceptance", acceptance, obj(json!({"status": "Expired"}))).await?;
-        let still: bool = sqlx::query_scalar(
-            "select exists(select 1 from e_risk_acceptance where tenant_id = $1 and risk = $2 and status = 'Accepted' and expires_on >= $3)",
-        )
-        .bind(ctx.tenant)
-        .bind(risk)
-        .bind(today)
-        .fetch_one(&mut **tx)
-        .await?;
-        if !still {
-            k.set_values_tx(ctx, tx, "Risk", risk, obj(json!({"treatment": "Open"}))).await?;
-        }
+        reopen(k, ctx, tx, risk, today).await?;
+        tell_about(k, ctx, tx, "grc.acceptance_expired", acceptance, risk, approver).await?;
     }
     Ok(())
+}
+
+/// Accepted acceptances ending within `days`, their risk's owner and the approver told once for the day they end.
+pub(crate) async fn remind(k: &Kernel, ctx: &Ctx, tx: &mut Tx, today: NaiveDate, days: i64) -> Result<()> {
+    let ending: Vec<(Uuid, Uuid, Option<String>, NaiveDate)> = sqlx::query_as(
+        "select id, risk, approver, expires_on from e_risk_acceptance where tenant_id = $1 and status = 'Accepted' \
+         and expires_on >= $2 and expires_on <= $3 and reminded_for is distinct from expires_on order by id for update",
+    )
+    .bind(ctx.tenant)
+    .bind(today)
+    .bind(today + chrono::Duration::days(days))
+    .fetch_all(&mut **tx)
+    .await?;
+    for (acceptance, risk, approver, ends) in ending {
+        tell_about(k, ctx, tx, "grc.acceptance_expiring", acceptance, risk, approver).await?;
+        k.set_values_tx(ctx, tx, "RiskAcceptance", acceptance, obj(json!({"reminded_for": ends.to_string()}))).await?;
+    }
+    Ok(())
+}
+
+/// An acceptance's message to its risk's owner and its approver, naming the risk.
+async fn tell_about(k: &Kernel, ctx: &Ctx, tx: &mut Tx, template: &str, acceptance: Uuid, risk: Uuid, approver: Option<String>) -> Result<()> {
+    let (owner, title): (Option<String>, Option<String>) = sqlx::query_as("select owner, title from e_risk where tenant_id = $1 and id = $2")
+        .bind(ctx.tenant)
+        .bind(risk)
+        .fetch_optional(&mut **tx)
+        .await?
+        .unwrap_or_default();
+    tell(k, ctx, tx, template, "RiskAcceptance", acceptance, vec![owner, approver], obj(json!({"risk": title}))).await
 }

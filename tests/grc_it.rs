@@ -4,7 +4,8 @@
 //! targeted; mitigation naming its controls; a risk above the tolerance accepted only by a risk
 //! approver who does not own it, until the acceptance expires; controls tested with evidence, their
 //! standing going stale; policies published by revision and acknowledged again when they change;
-//! findings overdue and closed saying how; and who may do what.
+//! findings overdue and closed saying how; a decided acceptance kept as decided; people told, once, before an
+//! acceptance ends and a finding is due; where people's data is; and who may do what.
 
 use chrono::{Duration, Utc};
 use ferrum_kernel::tenant::NewTenant;
@@ -207,6 +208,84 @@ async fn scenario() {
     t.act(&ra, "RiskAcceptance", no, "reject_acceptance").await.unwrap();
     assert_eq!((t.get("RiskAcceptance", no).await["status"].as_str(), t.get("Risk", ransom_id).await["treatment"].as_str()), (Some("Rejected"), Some("Open")));
 
+    // ───────────── a decided acceptance keeps its day, its reason and its risk ─────────────
+    let outage = uid(&t
+        .insert(&rm, "Risk", risk("Supplier outage", "cfo@secure.test", [4, 4, 4, 4, 2, 2], "Open", json!([{"control": backups.to_string()}])))
+        .await["id"]);
+    let held = uid(&t.insert(&rm, "RiskAcceptance", acceptance(outage, (today + Duration::days(20)).to_string())).await["id"]);
+    // A draft acceptance can still be changed.
+    t.set(&rm, "RiskAcceptance", held, json!({"justification": "Two suppliers by spring", "expires_on": (today + Duration::days(21)).to_string()}))
+        .await
+        .expect("a draft is the proposer's to change");
+    t.set(&rm, "RiskAcceptance", held, json!({"expires_on": (today + Duration::days(20)).to_string()})).await.unwrap();
+    t.act(&ra, "RiskAcceptance", held, "accept_risk").await.expect("accepted");
+    let ten_years = (today + Duration::days(3650)).to_string();
+    for who in [&rm, &ra, &t.admin] {
+        refused(t.set(who, "RiskAcceptance", held, json!({"expires_on": ten_years})).await, "invalid", "keeps its risk");
+        refused(t.set(who, "RiskAcceptance", held, json!({"justification": "Something else"})).await, "invalid", "keeps its risk");
+        refused(t.set(who, "RiskAcceptance", held, json!({"risk": small.to_string()})).await, "invalid", "keeps its risk");
+    }
+    let kept = t.get("RiskAcceptance", held).await;
+    assert_eq!(
+        (kept["expires_on"].as_str(), kept["justification"].as_str(), kept["risk"].as_str()),
+        (Some((today + Duration::days(20)).to_string().as_str()), Some("Two suppliers by spring"), Some(outage.to_string().as_str()))
+    );
+
+    // ───────────── an acceptance whose day has passed is not accepted ─────────────
+    let late = uid(&t.insert(&rm, "RiskAcceptance", acceptance(outage, (today + Duration::days(5)).to_string())).await["id"]);
+    let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
+    sqlx::query("update e_risk_acceptance set expires_on = $2 where tenant_id = $1 and id = $3")
+        .bind(t.tenant)
+        .bind(today - Duration::days(1))
+        .bind(late)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    refused(t.act(&ra, "RiskAcceptance", late, "accept_risk").await, "invalid", "expires_on");
+    assert_eq!(t.get("RiskAcceptance", late).await["status"], "Draft");
+
+    // ───────────── people are told before an acceptance ends and when it ends ─────────────
+    let sends = |record: Uuid, template: &'static str| {
+        let k = k.clone();
+        async move {
+            let mut tx = k.db.tenant_tx(tenant).await.unwrap();
+            let n: i64 = sqlx::query_scalar("select count(*) from message_send where tenant_id = $1 and record_id = $2 and template = $3")
+                .bind(tenant)
+                .bind(record)
+                .bind(template)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+            n
+        }
+    };
+    let settings = uid(&t.k.list(&rm, "GrcSettings", &ListQuery::default()).await.unwrap().rows[0]["id"]);
+    t.set(&rm, "GrcSettings", settings, json!({"reminder_days": 14})).await.unwrap();
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(5)).await.unwrap();
+    assert_eq!(sends(held, "grc.acceptance_expiring").await, 0, "15 days ahead: not yet");
+    // Two upkeeps at once tell once.
+    let (a, b) = tokio::join!(
+        ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(10)),
+        ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(10))
+    );
+    a.unwrap();
+    b.unwrap();
+    assert_eq!(sends(held, "grc.acceptance_expiring").await, 2, "the risk's owner and the approver, once each");
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(11)).await.unwrap();
+    assert_eq!(sends(held, "grc.acceptance_expiring").await, 2, "not again");
+    assert_eq!(sends(held, "grc.acceptance_expired").await, 0);
+
+    // ───────────── expiry leaves a treatment someone chose ─────────────
+    assert_eq!(t.get("Risk", outage).await["treatment"], "Accept");
+    t.set(&rm, "Risk", outage, json!({"treatment": "Mitigate"})).await.expect("mitigated after all");
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(21)).await.unwrap();
+    assert_eq!(t.get("RiskAcceptance", held).await["status"], "Expired");
+    assert_eq!(t.get("Risk", outage).await["treatment"], "Mitigate", "an expiry does not undo a treatment chosen since");
+    assert_eq!(sends(held, "grc.acceptance_expired").await, 2, "the risk's owner and the approver, told it ended");
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(22)).await.unwrap();
+    assert_eq!(sends(held, "grc.acceptance_expired").await, 2, "once");
+
     // ───────────── policies ─────────────
     let policy = uid(&t.insert(&rm, "Policy", json!({"title": "Acceptable use", "owner": "rm@secure.test", "text": "Lock your screen."})).await["id"]);
     refused(t.k.get(&reader, "Policy", policy, false).await, "not found", "");
@@ -235,8 +314,27 @@ async fn scenario() {
     let finding = |title: &str, due: String| json!({"title": title, "severity": "High", "control": mfa.to_string(), "owner": "rm@secure.test", "due_on": due});
     let f1 = uid(&t.insert(&rm, "Finding", finding("MFA not on admin accounts", (today + Duration::days(7)).to_string())).await["id"]);
     let f2 = uid(&t.insert(&rm, "Finding", finding("Old VPN accounts", (today + Duration::days(30)).to_string())).await["id"]);
+    let mut done = finding("Shared admin password", (today + Duration::days(3)).to_string());
+    done["status"] = json!("Closed");
+    done["remediation"] = json!("Rotated and vaulted");
+    let f3 = uid(&t.insert(&rm, "Finding", done).await["id"]);
+    // A finding's owner is told before it is due and when it is overdue, each once; closed findings never.
+    ferrum_app_grc::maintenance_on(&k, tenant, today).await.unwrap();
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(1)).await.unwrap();
+    assert_eq!((sends(f1, "grc.finding_due").await, sends(f2, "grc.finding_due").await), (1, 0), "due within 14 days, once");
     ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(10)).await.unwrap();
     assert_eq!((t.get("Finding", f1).await["overdue"].as_bool(), t.get("Finding", f2).await["overdue"].as_bool()), (Some(true), Some(false)));
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(11)).await.unwrap();
+    assert_eq!((sends(f1, "grc.finding_overdue").await, sends(f1, "grc.finding_due").await), (1, 1), "overdue, once");
+    assert_eq!((sends(f3, "grc.finding_due").await, sends(f3, "grc.finding_overdue").await), (0, 0), "a closed finding is nobody's errand");
+    // Reminder days of zero tell nobody.
+    t.set(&rm, "GrcSettings", settings, json!({"reminder_days": 0})).await.unwrap();
+    let quiet = uid(&t.insert(&rm, "Finding", finding("Unsigned NDAs", (today + Duration::days(13)).to_string())).await["id"]);
+    let quiet_acc = uid(&t.insert(&rm, "RiskAcceptance", acceptance(outage, (today + Duration::days(13)).to_string())).await["id"]);
+    t.act(&ra, "RiskAcceptance", quiet_acc, "accept_risk").await.unwrap();
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(11)).await.unwrap();
+    assert_eq!((sends(quiet, "grc.finding_due").await, sends(quiet_acc, "grc.acceptance_expiring").await), (0, 0), "no reminders");
+    t.set(&rm, "GrcSettings", settings, json!({"reminder_days": 14})).await.unwrap();
     refused(t.set(&rm, "Finding", f1, json!({"status": "Closed"})).await, "invalid", "says how it was fixed");
     t.set(&rm, "Finding", f1, json!({"status": "Closed", "remediation": "Enforced for every admin"})).await.unwrap();
     assert_eq!(t.get("Finding", f1).await["overdue"], false, "closed, it is not overdue");
@@ -245,6 +343,24 @@ async fn scenario() {
     refused(t.k.insert(&ra, "Risk", obj(risk("Mine", "ra@secure.test", [1, 1, 1, 1, 1, 1], "Open", json!([])))).await, "forbidden", "");
     refused(t.k.insert(&reader, "Policy", obj(json!({"title": "Mine", "text": "x"}))).await, "forbidden", "");
     refused(t.k.insert(&ra, "ControlTest", obj(test(backups, today.to_string(), "Ineffective", json!([])))).await, "forbidden", "");
+
+    // ───────────── the package says where people's data is, and what each action promises ─────────────
+    let grc = ferrum_app_grc::packages().unwrap().into_iter().find(|p| p.name() == "grc").unwrap();
+    let mut declared: Vec<&str> = grc.manifest.personal_data.iter().map(|d| d.entity.as_str()).collect();
+    declared.sort();
+    assert_eq!(declared, ["Control", "ControlTest", "Finding", "Policy", "PolicyAcknowledgement", "Risk", "RiskAcceptance"]);
+    let mut handed: Vec<&str> = grc.manifest.handover.iter().map(|h| h.entity.as_str()).collect();
+    handed.sort();
+    assert_eq!(handed, ["Control", "Finding", "Policy", "Risk"]);
+    let theirs = t.k.personal_data(&t.admin, "rm@secure.test").await.expect("their data").to_string();
+    for f in [f1, f2, f3, quiet] {
+        assert!(theirs.contains(&f.to_string()), "the findings rm owns are hers: {f}");
+    }
+    let actions: Vec<_> = grc.entities.iter().flat_map(|e| e.actions.iter()).collect();
+    assert_eq!(actions.len(), 6);
+    for a in actions {
+        assert!(a.contract.as_ref().and_then(|c| c.completion.as_deref()).is_some_and(|c| !c.is_empty()), "{} says what done means", a.name);
+    }
 
     // ───────────── the workspace's day, not UTC's ─────────────
     // No clock can be set: as the platform's own suites do, the workspace moves to a zone whose day is not UTC's now

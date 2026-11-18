@@ -2,14 +2,15 @@
 //! whoever records it; an effective result needs its evidence. The control's last test is its
 //! latest by day; the control is effective while that test was effective and is still current.
 //! Upkeep marks controls whose last test has gone stale as no longer effective. A finding left
-//! open past its day is overdue; closed, it says how it was fixed.
+//! open past its day is overdue; closed, it says how it was fixed. Its owner is told before it is due and once it
+//! is overdue.
 
-use crate::{obj, test_every};
+use crate::{obj, tell, test_every};
 use async_trait::async_trait;
 use chrono::{Duration, NaiveDate};
 use ferrum_domain::util::{elevated, id, rows, s};
 use ferrum_kernel::{Ctx, Doc, DocHook, Error, HookCtx, Kernel, Result, Tx};
-use serde_json::json;
+use serde_json::{Map, json};
 use uuid::Uuid;
 
 /// A control's standing from its latest test as of `today`.
@@ -81,14 +82,34 @@ pub(crate) async fn upkeep(k: &Kernel, ctx: &Ctx, tx: &mut Tx, today: NaiveDate)
     for control in effective {
         standing(k, ctx, tx, control, today).await?;
     }
-    let late: Vec<Uuid> =
-        sqlx::query_scalar("select id from e_finding where tenant_id = $1 and status <> 'Closed' and due_on < $2 and not coalesce(overdue, false)")
-            .bind(ctx.tenant)
-            .bind(today)
-            .fetch_all(&mut **tx)
-            .await?;
-    for finding in late {
+    let late: Vec<(Uuid, Option<String>)> = sqlx::query_as(
+        "select id, owner from e_finding where tenant_id = $1 and status <> 'Closed' and due_on < $2 and not coalesce(overdue, false) order by id for update",
+    )
+    .bind(ctx.tenant)
+    .bind(today)
+    .fetch_all(&mut **tx)
+    .await?;
+    for (finding, owner) in late {
         k.set_values_tx(ctx, tx, "Finding", finding, obj(json!({"overdue": true}))).await?;
+        tell(k, ctx, tx, "grc.finding_overdue", "Finding", finding, vec![owner], Map::new()).await?;
+    }
+    Ok(())
+}
+
+/// Open findings due within `days`, their owner told once for the day they are due.
+pub(crate) async fn remind(k: &Kernel, ctx: &Ctx, tx: &mut Tx, today: NaiveDate, days: i64) -> Result<()> {
+    let due: Vec<(Uuid, Option<String>, NaiveDate)> = sqlx::query_as(
+        "select id, owner, due_on from e_finding where tenant_id = $1 and status <> 'Closed' \
+         and due_on >= $2 and due_on <= $3 and reminded_for is distinct from due_on order by id for update",
+    )
+    .bind(ctx.tenant)
+    .bind(today)
+    .bind(today + Duration::days(days))
+    .fetch_all(&mut **tx)
+    .await?;
+    for (finding, owner, on) in due {
+        tell(k, ctx, tx, "grc.finding_due", "Finding", finding, vec![owner], Map::new()).await?;
+        k.set_values_tx(ctx, tx, "Finding", finding, obj(json!({"reminded_for": on.to_string()}))).await?;
     }
     Ok(())
 }

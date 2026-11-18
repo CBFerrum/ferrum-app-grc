@@ -18,8 +18,9 @@ mod risks;
 
 use chrono::NaiveDate;
 use ferrum_domain::reports::ReportSource;
+use ferrum_kernel::messages::{Message, Recipient};
 use ferrum_kernel::{Ctx, Doc, HookRegistry, Kernel, Result, Tx};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -50,8 +51,8 @@ pub fn reports() -> Vec<Arc<dyn ReportSource>> {
 }
 
 /// One workspace's upkeep, which the platform runs about once a minute where GRC is installed, on whichever replica is
-/// free, and may run again: acceptances expired, controls' standing kept current, and findings overdue, on the
-/// workspace's own day.
+/// free, and may run again: acceptances expired, controls' standing kept current, findings overdue, and their people
+/// told, each once, on the workspace's own day.
 pub async fn maintenance(k: &Kernel, tenant: Uuid) -> Result<()> {
     upkeep(k, tenant, None).await
 }
@@ -68,6 +69,11 @@ async fn upkeep(k: &Kernel, tenant: Uuid, on: Option<NaiveDate>) -> Result<()> {
     let mut tx = k.db.tenant_tx(tenant).await?;
     risks::expire(k, &ctx, &mut tx, today).await?;
     controls::upkeep(k, &ctx, &mut tx, today).await?;
+    let days = reminder_days(&mut tx, tenant).await?;
+    if days > 0 {
+        risks::remind(k, &ctx, &mut tx, today, days).await?;
+        controls::remind(k, &ctx, &mut tx, today, days).await?;
+    }
     tx.commit().await?;
     Ok(())
 }
@@ -89,6 +95,46 @@ pub(crate) async fn test_every(tx: &mut Tx, tenant: Uuid) -> Result<i64> {
     let t: Option<i64> =
         sqlx::query_scalar("select test_every_days from e_grc_settings where tenant_id = $1 limit 1").bind(tenant).fetch_optional(&mut **tx).await?.flatten();
     Ok(t.unwrap_or(365))
+}
+
+/// How many days ahead people are reminded; 0: never.
+pub(crate) async fn reminder_days(tx: &mut Tx, tenant: Uuid) -> Result<i64> {
+    let t: Option<i64> = sqlx::query_scalar("select reminder_days::bigint from e_grc_settings where tenant_id = $1 limit 1")
+        .bind(tenant)
+        .fetch_optional(&mut **tx)
+        .await?
+        .flatten();
+    Ok(t.unwrap_or(14))
+}
+
+/// A message about a record to the addresses given, each once; none, nothing is sent.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn tell(
+    k: &Kernel,
+    ctx: &Ctx,
+    tx: &mut Tx,
+    template: &str,
+    entity: &str,
+    record: Uuid,
+    to: Vec<Option<String>>,
+    values: Map<String, Value>,
+) -> Result<()> {
+    let mut people: Vec<String> = to.into_iter().flatten().map(|e| e.trim().to_lowercase()).filter(|e| !e.is_empty()).collect();
+    people.sort();
+    people.dedup();
+    if people.is_empty() {
+        return Ok(());
+    }
+    let m = Message {
+        template: template.into(),
+        entity: Some(entity.into()),
+        record: Some(record),
+        to: people.iter().map(|e| Recipient::address(e)).collect(),
+        values,
+        ..Default::default()
+    };
+    ferrum_kernel::messages::send(k, tx, ctx, &m).await?;
+    Ok(())
 }
 
 #[cfg(test)]

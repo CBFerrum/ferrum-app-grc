@@ -6,8 +6,10 @@
   fields:
     - {name: tolerance, type: int, required: true, default: 6, description: "The highest score (likelihood times impact, out of 25) accepted without a risk acceptance"}
     - {name: test_every_days, type: int, required: true, default: 365, description: "A control's test is current this many days"}
+    - {name: reminder_days, type: int, default: 14, min: 0, max: 365, description: "Days before an acceptance expires and before a finding is due that their people are reminded; 0 = no reminders"}
   form:
     - {label: Appetite, fields: [tolerance, test_every_days]}
+    - {label: Reminders, fields: [reminder_days]}
 
 - name: RiskControl
   label: Control
@@ -99,10 +101,14 @@
     - {name: status, type: select, options: [Draft, Accepted, Rejected, Revoked, Expired], default: Draft, read_only: true, no_copy: true, in_list: true, in_filter: true}
     - {name: approver, type: email, read_only: true, no_copy: true, in_list: true}
     - {name: decided_on, type: date, read_only: true, no_copy: true}
+    - {name: reminded_for, type: date, read_only: true, hidden: true, no_copy: true}
   actions:
-    - {name: accept_risk, label: Accept It, permission: write, condition: "doc.status == 'Draft'"}
-    - {name: reject_acceptance, label: Reject It, permission: write, condition: "doc.status == 'Draft'"}
-    - {name: revoke_acceptance, label: Revoke It, permission: write, condition: "doc.status == 'Accepted'"}
+    - {name: accept_risk, label: Accept It, permission: write, condition: "doc.status == 'Draft'",
+       contract: {completion: "The acceptance is Accepted by the caller, a Risk Approver who does not own the risk, and the risk's treatment is Accept until the acceptance expires or is revoked"}}
+    - {name: reject_acceptance, label: Reject It, permission: write, condition: "doc.status == 'Draft'",
+       contract: {completion: "The acceptance is Rejected by the caller; the risk is unchanged"}}
+    - {name: revoke_acceptance, label: Revoke It, permission: write, condition: "doc.status == 'Accepted'",
+       contract: {completion: "The acceptance is Revoked and the risk is Open again unless another acceptance still holds it"}}
   numbering: {template: "ACC-{YYYY}-{seq:4}"}
   list: {columns: [number, risk, expires_on, status, approver], sort: created_at desc}
 
@@ -123,9 +129,12 @@
     - {name: published_on, type: date, read_only: true, no_copy: true, in_list: true}
     - {name: review_by, type: date}
   actions:
-    - {name: publish, label: Publish It, permission: write, condition: "doc.status != 'Retired'"}
-    - {name: acknowledge, label: I Have Read It, permission: read, condition: "doc.status == 'Published'"}
-    - {name: retire, label: Retire It, permission: write, condition: "doc.status == 'Published'"}
+    - {name: publish, label: Publish It, permission: write, condition: "doc.status != 'Retired'",
+       contract: {completion: "The policy is Published; with new text it is at its next revision, which everyone acknowledges again"}}
+    - {name: acknowledge, label: I Have Read It, permission: read, condition: "doc.status == 'Published'",
+       contract: {completion: "The caller's acknowledgement of the policy's current revision is recorded, once"}}
+    - {name: retire, label: Retire It, permission: write, condition: "doc.status == 'Published'",
+       contract: {completion: "The policy is Retired and can no longer be acknowledged"}}
   list: {columns: [title, owner, revision, status, published_on], sort: title asc}
 
 - name: PolicyAcknowledgement
@@ -158,5 +167,6 @@
     - {name: status, type: select, options: [Open, Remediating, Closed], default: Open, in_list: true, in_filter: true}
     - {name: remediation, type: text}
     - {name: overdue, type: check, read_only: true, no_copy: true, in_list: true, in_filter: true}
+    - {name: reminded_for, type: date, read_only: true, hidden: true, no_copy: true}
   numbering: {template: "FND-{YYYY}-{seq:4}"}
   list: {columns: [number, title, severity, owner, due_on, status, overdue], sort: due_on asc}

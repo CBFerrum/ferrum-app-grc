@@ -1,5 +1,5 @@
 package: grc
-version: 0.1.0
+version: 0.2.0
 label: Governance and Risk
 description: "Risks scored on a matrix with their treatment and acceptance, controls tested with evidence, policies acknowledged by revision, and findings"
 depends: [core]
@@ -34,3 +34,62 @@ roles:
     permissions:
       - {entity: Policy, read: true, where: {status: Published}}
       - {entity: PolicyAcknowledgement, read: true, if_owner: true}
+
+# Told by upkeep, each once: before an acceptance ends and when it has, before a finding is due and once it is late.
+messages:
+  - key: grc.acceptance_expiring
+    label: Risk acceptance expiring
+    entity: RiskAcceptance
+    category: operational
+    channels: [email, inapp]
+    values: [risk]
+    languages:
+      en:
+        email: {subject: "Acceptance of {{ values.risk }} ends on {{ doc.expires_on }}", body: "<p>The acceptance {{ doc.number }} of the risk {{ values.risk }} ends on {{ doc.expires_on }}. After that day the risk is open again. Propose a new acceptance, or treat the risk another way.</p>"}
+        inapp: {title: "Acceptance of {{ values.risk }} ends on {{ doc.expires_on }}", text: "{{ doc.number }}"}
+  - key: grc.acceptance_expired
+    label: Risk acceptance expired
+    entity: RiskAcceptance
+    category: operational
+    channels: [email, inapp]
+    values: [risk]
+    languages:
+      en:
+        email: {subject: "Acceptance of {{ values.risk }} has ended", body: "<p>The acceptance {{ doc.number }} of the risk {{ values.risk }} ended on {{ doc.expires_on }}. The risk is open again. Propose a new acceptance, or treat the risk another way.</p>"}
+        inapp: {title: "Acceptance of {{ values.risk }} has ended", text: "{{ doc.number }}"}
+  - key: grc.finding_due
+    label: Finding due
+    entity: Finding
+    category: operational
+    channels: [email, inapp]
+    languages:
+      en:
+        email: {subject: "{{ doc.number }} is due on {{ doc.due_on }}: {{ doc.title }}", body: "<p>The finding {{ doc.number }}, {{ doc.title }}, is due on {{ doc.due_on }}. Close it saying how it was fixed, or agree a new day.</p>"}
+        inapp: {title: "{{ doc.number }} is due on {{ doc.due_on }}", text: "{{ doc.title }}"}
+  - key: grc.finding_overdue
+    label: Finding overdue
+    entity: Finding
+    category: operational
+    channels: [email, inapp]
+    languages:
+      en:
+        email: {subject: "{{ doc.number }} is overdue since {{ doc.due_on }}: {{ doc.title }}", body: "<p>The finding {{ doc.number }}, {{ doc.title }}, was due on {{ doc.due_on }} and is not closed. Close it saying how it was fixed, or agree a new day.</p>"}
+        inapp: {title: "{{ doc.number }} is overdue since {{ doc.due_on }}", text: "{{ doc.title }}"}
+
+# Where people's addresses are kept. What is retained is the record of a decision, a test or an acknowledgement;
+# a workspace whose own duty differs changes it (README, "Roles and access").
+personal_data:
+  - {entity: Risk, match: owner, retain: "Who answered for a risk is part of the organisation's risk register"}
+  - {entity: Control, match: owner, retain: "Who answered for a control is part of the control record"}
+  - {entity: ControlTest, match: tester, retain: "Who tested a control is the evidence of the test"}
+  - {entity: RiskAcceptance, match: approver, retain: "Who accepted a risk is the record of the decision"}
+  - {entity: PolicyAcknowledgement, match: person, retain: "Proof that a person acknowledged a policy"}
+  - {entity: Policy, match: owner, erase: [owner]}
+  - {entity: Finding, match: owner, retain: "Who answered for a finding is part of the audit record"}
+
+# A leaver's open work passes to whoever takes over.
+handover:
+  - {entity: Risk, field: owner}
+  - {entity: Control, field: owner, where: {status: [Planned, In Place]}}
+  - {entity: Finding, field: owner, where: {status: [Open, Remediating]}}
+  - {entity: Policy, field: owner, where: {status: [Draft, Published]}}
