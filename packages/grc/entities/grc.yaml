@@ -179,6 +179,16 @@
   indexes: [[status, due_on]]
   list: {columns: [policy, revision, person, due_on, status, overdue], sort: due_on asc}
 
+- name: FindingStep
+  label: Step
+  kind: child
+  fields:
+    - {name: title, type: data, required: true, in_list: true}
+    - {name: owner, type: email, in_list: true}
+    - {name: due_on, type: date, in_list: true}
+    - {name: done, type: check, in_list: true}
+    - {name: done_on, type: date, read_only: true, in_list: true}
+
 - name: Finding
   label: Finding
   label_plural: Findings
@@ -195,6 +205,9 @@
     - {name: due_on, type: date, required: true, in_list: true}
     - {name: status, type: select, options: [Open, Remediating, Closed], default: Open, in_list: true, in_filter: true}
     - {name: remediation, type: text}
+    - {name: steps, type: table, of: FindingStep, description: "What is done to fix it, each step owned and dated"}
+    - {name: retest_required, type: check, in_filter: true, description: "It closes only after a test of its control, made after it was raised, found the control effective"}
+    - {name: retest, type: link, to: ControlTest, description: "The test that showed the fix works"}
     - {name: overdue, type: check, read_only: true, no_copy: true, in_list: true, in_filter: true}
     - {name: reminded_for, type: date, read_only: true, hidden: true, no_copy: true}
   numbering: {template: "FND-{YYYY}-{seq:4}"}

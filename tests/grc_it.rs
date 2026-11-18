@@ -390,6 +390,38 @@ async fn scenario() {
     t.set(&rm, "Finding", f1, json!({"status": "Closed", "remediation": "Enforced for every admin"})).await.unwrap();
     assert_eq!(t.get("Finding", f1).await["overdue"], false, "closed, it is not overdue");
 
+    // ───────────── remediation plans: steps, and a retest before a finding closes ─────────────
+    let step = |title: &str, done: bool| json!({"title": title, "owner": "ops@secure.test", "due_on": (today + Duration::days(5)).to_string(), "done": done});
+    let mut planned = finding("Weak TLS on the VPN", (today + Duration::days(20)).to_string());
+    planned["steps"] = json!([step("Disable TLS 1.0", true), step("Rescan", false)]);
+    let weak = uid(&t.insert(&rm, "Finding", planned).await["id"]);
+    // A step done is dated on the workspace's day, and undone loses the date.
+    let steps = |d: &Doc| d["steps"].as_array().unwrap().iter().map(|r| r["done_on"].as_str().map(str::to_string)).collect::<Vec<_>>();
+    assert_eq!(steps(&t.get("Finding", weak).await), [Some(today.to_string()), None]);
+    t.set(&rm, "Finding", weak, json!({"steps": [step("Disable TLS 1.0", false), step("Rescan", false)]})).await.unwrap();
+    assert_eq!(steps(&t.get("Finding", weak).await), [None, None]);
+    // A finding with an open step does not close; with every step done it does.
+    let closing = |steps: Value| json!({"status": "Closed", "remediation": "TLS 1.2 only", "steps": steps});
+    refused(t.set(&rm, "Finding", weak, closing(json!([step("Disable TLS 1.0", true), step("Rescan", false)]))).await, "invalid", "1 steps are not done");
+    t.set(&rm, "Finding", weak, closing(json!([step("Disable TLS 1.0", true), step("Rescan", true)]))).await.expect("every step done");
+    // Who may change a finding's plan: not a Risk Approver.
+    refused(t.set(&ra, "Finding", f2, json!({"steps": [step("Mine", false)]})).await, "forbidden", "");
+    // A finding that needs a retest closes only with one, of its own control, effective, made after it was raised.
+    let mut needs = finding("Admins without MFA", (today + Duration::days(20)).to_string());
+    needs["retest_required"] = json!(true);
+    let admins = uid(&t.insert(&rm, "Finding", needs).await["id"]);
+    let close_with = |retest: Option<Uuid>| json!({"status": "Closed", "remediation": "Enforced", "retest": retest.map(|r| r.to_string())});
+    refused(t.set(&rm, "Finding", admins, close_with(None)).await, "invalid", "the test that showed the fix works");
+    let other = uid(&t.insert(&rm, "ControlTest", test(backups, today.to_string(), "Effective", proof.clone())).await["id"]);
+    refused(t.set(&rm, "Finding", admins, close_with(Some(other))).await, "invalid", "is a test of this finding's control");
+    let failed = uid(&t.insert(&rm, "ControlTest", test(mfa, today.to_string(), "Ineffective", json!([]))).await["id"]);
+    refused(t.set(&rm, "Finding", admins, close_with(Some(failed))).await, "invalid", "found the control effective");
+    let before = uid(&t.insert(&rm, "ControlTest", test(mfa, (today - Duration::days(1)).to_string(), "Effective", proof.clone())).await["id"]);
+    refused(t.set(&rm, "Finding", admins, close_with(Some(before))).await, "invalid", "was made after the finding was raised");
+    let retest = uid(&t.insert(&rm, "ControlTest", test(mfa, today.to_string(), "Effective", proof.clone())).await["id"]);
+    t.set(&rm, "Finding", admins, close_with(Some(retest))).await.expect("closed with its retest");
+    assert_eq!(t.get("Control", mfa).await["effective"], true, "the retest also stands for the control");
+
     // ───────────── attestation: who is asked to acknowledge a policy, by when, and who has not ─────────────
     let asks = |policy: Uuid| {
         let k = k.clone();
@@ -546,6 +578,7 @@ async fn scenario() {
     let grc = ferrum_app_grc::packages().unwrap().into_iter().find(|p| p.name() == "grc").unwrap();
     let mut declared: Vec<&str> = grc.manifest.personal_data.iter().map(|d| d.entity.as_str()).collect();
     declared.sort();
+    declared.dedup();
     assert_eq!(declared, ["Control", "ControlTest", "Finding", "Policy", "PolicyAcknowledgement", "PolicyAttestation", "Risk", "RiskAcceptance"]);
     let mut handed: Vec<&str> = grc.manifest.handover.iter().map(|h| h.entity.as_str()).collect();
     handed.sort();

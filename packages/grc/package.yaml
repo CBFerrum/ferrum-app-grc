@@ -1,5 +1,5 @@
 package: grc
-version: 0.4.0
+version: 0.5.0
 label: Governance and Risk
 description: "Risks scored on a matrix with their treatment and acceptance, controls tested with evidence, policies acknowledged by revision, and findings"
 depends: [core]
@@ -116,6 +116,7 @@ personal_data:
   - {entity: PolicyAttestation, match: person, retain: "Proof of who was asked to acknowledge a policy and whether they did"}
   - {entity: Policy, match: owner, erase: [owner]}
   - {entity: Finding, match: owner, retain: "Who answered for a finding is part of the audit record"}
+  - {entity: Finding, match: steps.owner, retain: "Who was to do a step of a fix is part of the audit record"}
 
 # A leaver's open work passes to whoever takes over.
 handover:

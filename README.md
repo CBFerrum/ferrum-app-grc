@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.5.0-7c3aed?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.0-7c3aed?style=flat-square)](CHANGELOG.md)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
 ![Rust](https://img.shields.io/badge/Rust-server-b7410e?style=flat-square&logo=rust)
@@ -44,9 +44,9 @@ what and until when. It ships no control frameworks: a control names the framewo
 
 | | |
 |---|---|
-| **Version** | 0.5.0 (platform `>=0.4.0, <0.5`) |
+| **Version** | 0.6.0 (platform `>=0.4.0, <0.5`) |
 | **Kind** | Own interface at `/grc/`, plus Ferrum's generic records screens for every entity |
-| **What it adds** | 8 entities and a settings record (Risk, Control, Control Test, Risk Acceptance, Policy, Policy Acknowledgement, Attestation, Finding), 2 child tables, 3 roles, 1 menu module, 3 numbered record types |
+| **What it adds** | 8 entities and a settings record (Risk, Control, Control Test, Risk Acceptance, Policy, Policy Acknowledgement, Attestation, Finding), 3 child tables, 3 roles, 1 menu module, 3 numbered record types |
 | **Depends on** | Ferrum core only |
 | **Works with** | The Ferrum assistant, audit trail, notifications and Studio; no other app is required |
 | **Languages** | English, Arabic (right to left), Hindi; a workspace can change any interface word |
@@ -198,6 +198,11 @@ what and until when. It ships no control frameworks: a control names the framewo
 - **Its owner is told.** The reminder days before a finding is due, and when it goes overdue, each once. A closed
   finding is nobody's errand.
 - **Closing needs a fix.** A closed finding must say how it was fixed in Remediation.
+- **Steps.** The plan of a fix: steps, each with an owner, a day and a done mark, dated on the day it is ticked
+  (untick it and the date goes). A finding closes only when every step is done.
+- **Retest.** A finding can require one: it then closes only with a test of its own control, made on or after the
+  day the finding was raised, that found the control effective. The retest is an ordinary control test, so it also
+  keeps the control shown as effective.
 
 ### ⚙️ Settings
 
@@ -273,7 +278,7 @@ Each person acknowledges each revision once. New text means a new revision and a
 | **Policy** | What people follow | Title, owner, text, status, revision, published text, published on, review by |
 | **Policy Acknowledgement** | Who read which revision | Policy, revision, person, acknowledged at |
 | **Attestation** | One person asked to acknowledge one revision | Policy, revision, person, due on, status (Due, Acknowledged, Withdrawn), acknowledged at, overdue |
-| **Finding** | A gap an audit or test found | Number, title, severity, control, risk, owner, due on, status, remediation, overdue |
+| **Finding** | A gap an audit or test found | Number, title, severity, control, risk, owner, due on, status, remediation, steps (title, owner, due on, done, done on), retest required, retest, overdue |
 | **Governance Settings** | Workspace settings | Tolerance, test interval, scale and level bands, reminder days |
 | Control on a risk (child) | A control named by a risk | Control |
 | Evidence (child) | A file on a test | Title, file |
@@ -331,7 +336,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 ¹ A control names the requirements it answers by identifier, as text. There is no framework library.
 
-² One remediation text and three finding states; no milestones or retest.
+² Steps with owners and days, and a required retest; no reminders or approval per step.
 ³ The home page lists queues; there is no heat map or shipped report.
 ⁴ Same platform and database as the other Ferrum apps; no connector that collects evidence from them yet.
 ⁵ The audience is one role per policy and a revision is the campaign; no audience by team or list of people yet.
@@ -365,6 +370,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 ### ✅ Recently shipped
 
+- [x] **0.6.0.** A finding's fix as steps with owners and days, and a retest of its control before it closes.
 - [x] **0.5.0.** The matrix as settings: its size and the levels' bands, risks re-levelled when they change.
 - [x] **0.4.0.** Policies ask an audience role to acknowledge each revision by a day, remind them, and list who
   has not.
@@ -401,7 +407,6 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 **Audit and findings**
 - [ ] Audit engagements: auditor access for a time, request lists, sampling and workpapers.
-- [ ] Remediation plans with milestones and retest.
 - [ ] Scoping by business unit, and delegated risk owners.
 
 **Wider governance**

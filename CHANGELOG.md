@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0
+
+Needs the same platform as 0.5.0. Package `grc` 0.5.0: a child table of steps on Finding (`FindingStep`) and two
+Finding fields (`retest_required`, `retest`). Existing findings have no steps and need no retest: they close as
+before. `ui/dist` rebuilt for the new names.
+
+- **A fix has steps.** Each with an owner, a day and a done mark, dated on the workspace's day when ticked. A
+  finding closes only when every step is done.
+- **A retest before it closes.** A finding can require one: it closes only with a test of its own control, made on
+  or after the day it was raised, that found the control effective.
+- People named on steps are declared as personal data (kept as the audit record).
+
 ## 0.5.0
 
 Needs the same platform as 0.4.0. Package `grc` 0.4.0: four Governance Settings fields (`scale`, `medium_from`,

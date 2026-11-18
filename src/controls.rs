@@ -8,9 +8,9 @@
 use crate::{obj, tell, test_every};
 use async_trait::async_trait;
 use chrono::{Duration, NaiveDate};
-use ferrum_domain::util::{elevated, id, rows, s};
+use ferrum_domain::util::{b, elevated, id, rows, s};
 use ferrum_kernel::{Ctx, Doc, DocHook, Error, HookCtx, Kernel, Result, Tx};
-use serde_json::{Map, json};
+use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 /// A control's standing from its latest test as of `today`.
@@ -114,6 +114,44 @@ pub(crate) async fn remind(k: &Kernel, ctx: &Ctx, tx: &mut Tx, today: NaiveDate,
     Ok(())
 }
 
+/// A finding that needs a retest names an effective test of its own control, made on or after the day it was raised.
+async fn retested(hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
+    let Some(control) = id(doc, "control") else {
+        return Err(Error::field("control", "a finding that needs a retest names its control"));
+    };
+    let Some(retest) = id(doc, "retest") else {
+        return Err(Error::field("retest", "it closes with the test that showed the fix works"));
+    };
+    let test: Option<(Option<Uuid>, Option<String>, Option<NaiveDate>)> =
+        sqlx::query_as("select control, result, tested_on from e_control_test where tenant_id = $1 and id = $2")
+            .bind(hc.ctx.tenant)
+            .bind(retest)
+            .fetch_optional(&mut **hc.tx)
+            .await?;
+    let (tested, result, on) = test.unwrap_or_default();
+    if tested != Some(control) {
+        return Err(Error::field("retest", "is a test of this finding's control"));
+    }
+    if result.as_deref() != Some("Effective") {
+        return Err(Error::field("retest", "found the control effective"));
+    }
+    let raised: Option<NaiveDate> = match id(doc, "id") {
+        Some(finding) => {
+            sqlx::query_scalar("select (created_at at time zone $3)::date from e_finding where tenant_id = $1 and id = $2")
+                .bind(hc.ctx.tenant)
+                .bind(finding)
+                .bind(&hc.ctx.schema.timezone)
+                .fetch_optional(&mut **hc.tx)
+                .await?
+        }
+        None => None,
+    };
+    if on.is_none_or(|on| on < raised.unwrap_or_else(|| hc.ctx.today())) {
+        return Err(Error::field("retest", "was made after the finding was raised"));
+    }
+    Ok(())
+}
+
 pub struct FindingHook;
 
 #[async_trait]
@@ -126,16 +164,39 @@ impl DocHook for FindingHook {
         &["overdue"]
     }
 
-    async fn before_validate(&self, _hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+    async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
         if s(doc, "status") == Some("Closed") {
             doc.insert("overdue".into(), json!(false));
+        }
+        // A step done is dated on the workspace's day; undone, it loses the date.
+        let today = json!(hc.ctx.today().to_string());
+        if let Some(Value::Array(steps)) = doc.get_mut("steps") {
+            for step in steps.iter_mut().filter_map(Value::as_object_mut) {
+                let done = step.get("done").and_then(Value::as_bool).unwrap_or(false);
+                let dated = step.get("done_on").is_some_and(|d| !d.is_null());
+                if !done {
+                    step.insert("done_on".into(), Value::Null);
+                } else if !dated {
+                    step.insert("done_on".into(), today.clone());
+                }
+            }
         }
         Ok(())
     }
 
-    async fn validate(&self, _hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
-        if s(doc, "status") == Some("Closed") && s(doc, "remediation").is_none() {
+    async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
+        if s(doc, "status") != Some("Closed") {
+            return Ok(());
+        }
+        if s(doc, "remediation").is_none() {
             return Err(Error::field("remediation", "a closed finding says how it was fixed"));
+        }
+        let open = rows(doc, "steps").iter().filter(|r| !b(r, "done")).count();
+        if open > 0 {
+            return Err(Error::field("steps", format!("{open} steps are not done")));
+        }
+        if b(doc, "retest_required") {
+            retested(hc, doc).await?;
         }
         Ok(())
     }
