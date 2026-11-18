@@ -129,7 +129,7 @@ async fn scenario() {
     // An older test entered later is not the last one.
     t.insert(&rm, "ControlTest", test(backups, (today - Duration::days(10)).to_string(), "Ineffective", json!([]))).await;
     assert_eq!(t.get("Control", backups).await["effective"], true, "the latest by day stands");
-    ferrum_app_grc::maintenance_on(&k, today + Duration::days(91)).await.unwrap();
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(91)).await.unwrap();
     assert_eq!(t.get("Control", backups).await["effective"], false, "a test 91 days old is stale");
     t.insert(&rm, "ControlTest", test(backups, today.to_string(), "Effective", proof.clone())).await;
     t.set(&rm, "Control", mfa, json!({"status": "In Place"})).await.unwrap();
@@ -173,7 +173,7 @@ async fn scenario() {
     let r = t.get("Risk", ransom_id).await;
     assert_eq!(r["treatment"], "Accept");
     t.set(&rm, "Risk", ransom_id, json!({"description": "Encrypted shares"})).await.expect("an accepted risk is kept");
-    ferrum_app_grc::maintenance_on(&k, today + Duration::days(31)).await.unwrap();
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(31)).await.unwrap();
     assert_eq!(t.get("RiskAcceptance", acc).await["status"], "Expired");
     assert_eq!(t.get("Risk", ransom_id).await["treatment"], "Open", "open again once its acceptance expired");
     let again = uid(&t.insert(&rm, "RiskAcceptance", acceptance(ransom_id, (today + Duration::days(60)).to_string())).await["id"]);
@@ -235,7 +235,7 @@ async fn scenario() {
     let finding = |title: &str, due: String| json!({"title": title, "severity": "High", "control": mfa.to_string(), "owner": "rm@secure.test", "due_on": due});
     let f1 = uid(&t.insert(&rm, "Finding", finding("MFA not on admin accounts", (today + Duration::days(7)).to_string())).await["id"]);
     let f2 = uid(&t.insert(&rm, "Finding", finding("Old VPN accounts", (today + Duration::days(30)).to_string())).await["id"]);
-    ferrum_app_grc::maintenance_on(&k, today + Duration::days(10)).await.unwrap();
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(10)).await.unwrap();
     assert_eq!((t.get("Finding", f1).await["overdue"].as_bool(), t.get("Finding", f2).await["overdue"].as_bool()), (Some(true), Some(false)));
     refused(t.set(&rm, "Finding", f1, json!({"status": "Closed"})).await, "invalid", "says how it was fixed");
     t.set(&rm, "Finding", f1, json!({"status": "Closed", "remediation": "Enforced for every admin"})).await.unwrap();

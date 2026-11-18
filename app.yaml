@@ -1,6 +1,6 @@
 id: grc
 name: Governance and Risk
-version: 0.1.18
+version: 0.2.0
 publisher: cbferrum
 summary: "Risks scored on a matrix with their treatment and acceptance, controls tested with evidence, policies acknowledged by revision, and findings"
 description: README.md
@@ -9,7 +9,7 @@ license: AGPL-3.0-only
 homepage: https://github.com/CBFerrum/ferrum-app-grc
 support: https://github.com/CBFerrum/ferrum-app-grc/issues
 runtime: native
-platform: ">=0.3.2, <0.4"
+platform: ">=0.4.0, <0.5"
 packages: [grc]
 uninstall: ask
 # Its own interface at /grc/: the risk register by level, controls due a test, policies to read.

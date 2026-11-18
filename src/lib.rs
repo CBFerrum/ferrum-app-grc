@@ -18,7 +18,7 @@ mod risks;
 
 use chrono::NaiveDate;
 use ferrum_domain::reports::ReportSource;
-use ferrum_kernel::{Ctx, Doc, Error, HookRegistry, Kernel, Result, Tx};
+use ferrum_kernel::{Ctx, Doc, HookRegistry, Kernel, Result, Tx};
 use serde_json::Value;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -49,40 +49,27 @@ pub fn reports() -> Vec<Arc<dyn ReportSource>> {
     vec![]
 }
 
-/// Upkeep: acceptances expired, controls' standing kept current, and findings overdue, each workspace on its own day.
-pub async fn maintenance(k: &Kernel) -> Result<()> {
-    upkeep(k, None).await
+/// One workspace's upkeep, which the platform runs about once a minute where GRC is installed, on whichever replica is
+/// free, and may run again: acceptances expired, controls' standing kept current, and findings overdue, on the
+/// workspace's own day.
+pub async fn maintenance(k: &Kernel, tenant: Uuid) -> Result<()> {
+    upkeep(k, tenant, None).await
 }
 
-/// [`maintenance`] as if every workspace's day were `today`.
-pub async fn maintenance_on(k: &Kernel, today: NaiveDate) -> Result<()> {
-    upkeep(k, Some(today)).await
+/// [`maintenance`] as if the workspace's day were `today`.
+pub async fn maintenance_on(k: &Kernel, tenant: Uuid, today: NaiveDate) -> Result<()> {
+    upkeep(k, tenant, Some(today)).await
 }
 
-async fn upkeep(k: &Kernel, on: Option<NaiveDate>) -> Result<()> {
-    let mut tx = k.db.system_tx().await?;
-    let tenants: Vec<Uuid> = sqlx::query_scalar("select id from tenant where status = 'active' order by id").fetch_all(&mut *tx).await?;
+async fn upkeep(k: &Kernel, tenant: Uuid, on: Option<NaiveDate>) -> Result<()> {
+    let schema = k.registry.schema(tenant).await?;
+    let ctx = Ctx::system(tenant, schema);
+    let today = on.unwrap_or_else(|| ctx.today());
+    let mut tx = k.db.tenant_tx(tenant).await?;
+    risks::expire(k, &ctx, &mut tx, today).await?;
+    controls::upkeep(k, &ctx, &mut tx, today).await?;
     tx.commit().await?;
-    let mut first_error: Option<Error> = None;
-    for tenant in tenants {
-        let run = async {
-            let schema = k.registry.schema(tenant).await?;
-            if !schema.packages.iter().any(|p| p == "grc") {
-                return Ok(());
-            }
-            let ctx = Ctx::system(tenant, schema);
-            let today = on.unwrap_or_else(|| ctx.today());
-            let mut tx = k.db.tenant_tx(tenant).await?;
-            risks::expire(k, &ctx, &mut tx, today).await?;
-            controls::upkeep(k, &ctx, &mut tx, today).await?;
-            tx.commit().await?;
-            Ok::<(), Error>(())
-        };
-        if let Err(e) = run.await {
-            first_error.get_or_insert(e);
-        }
-    }
-    first_error.map_or(Ok(()), Err)
+    Ok(())
 }
 
 /// A document from JSON.
