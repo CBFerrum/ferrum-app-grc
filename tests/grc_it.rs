@@ -339,6 +339,153 @@ async fn scenario() {
     t.set(&rm, "Finding", f1, json!({"status": "Closed", "remediation": "Enforced for every admin"})).await.unwrap();
     assert_eq!(t.get("Finding", f1).await["overdue"], false, "closed, it is not overdue");
 
+    // ───────────── attestation: who is asked to acknowledge a policy, by when, and who has not ─────────────
+    let asks = |policy: Uuid| {
+        let k = k.clone();
+        let admin = t.admin.clone();
+        async move {
+            let q = ListQuery { filters: vec![ferrum_kernel::Filter::eq("policy", json!(policy.to_string()))], ..Default::default() };
+            let mut rows: Vec<(String, i64, String)> = k
+                .list(&admin, "PolicyAttestation", &q)
+                .await
+                .unwrap()
+                .rows
+                .iter()
+                .map(|r| (r["person"].as_str().unwrap().to_string(), r["revision"].as_i64().unwrap(), r["status"].as_str().unwrap().to_string()))
+                .collect();
+            rows.sort();
+            rows
+        }
+    };
+    let ask_of = |policy: Uuid, person: &'static str, revision: i64| {
+        let k = k.clone();
+        async move {
+            let mut tx = k.db.tenant_tx(tenant).await.unwrap();
+            let id: Uuid = sqlx::query_scalar("select id from e_policy_attestation where tenant_id = $1 and policy = $2 and person = $3 and revision = $4")
+                .bind(tenant)
+                .bind(policy)
+                .bind(person)
+                .bind(revision)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+            id
+        }
+    };
+    // A policy with no audience behaves as before.
+    let plain = uid(&t.insert(&rm, "Policy", json!({"title": "Visitors", "owner": "rm@secure.test", "text": "Sign in at the desk."})).await["id"]);
+    assert_eq!(t.act(&rm, "Policy", plain, "publish").await.unwrap()["asked"], 0);
+    assert!(asks(plain).await.is_empty(), "nobody asked");
+    // Publishing asks each holder of the audience once.
+    let handbook = uid(&t
+        .insert(
+            &rm,
+            "Policy",
+            json!({"title": "Handbook", "owner": "rm@secure.test", "text": "Be kind.", "audience_role": "Policy Reader", "acknowledge_within_days": 30}),
+        )
+        .await["id"]);
+    assert_eq!(t.act(&rm, "Policy", handbook, "publish").await.unwrap()["asked"], 2);
+    let due = (today + Duration::days(30)).to_string();
+    assert_eq!(asks(handbook).await, [("pat@secure.test".into(), 1, "Due".into()), ("quinn@secure.test".into(), 1, "Due".into())]);
+    let pat1 = ask_of(handbook, "pat@secure.test", 1).await;
+    assert_eq!(t.get("PolicyAttestation", pat1).await["due_on"], json!(due));
+    assert_eq!(
+        (sends(pat1, "grc.policy_to_acknowledge").await, sends(ask_of(handbook, "quinn@secure.test", 1).await, "grc.policy_to_acknowledge").await),
+        (1, 1)
+    );
+    refused(t.act(&rm, "Policy", handbook, "publish").await, "invalid", "nothing new to publish");
+    assert_eq!(asks(handbook).await.len(), 2, "asks nobody again");
+    // Acknowledging closes the person's own ask; someone not asked can still acknowledge, and gets no ask.
+    t.act(&reader, "Policy", handbook, "acknowledge").await.unwrap();
+    assert_eq!(t.get("PolicyAttestation", pat1).await["status"], "Acknowledged");
+    t.act(&rm, "Policy", handbook, "acknowledge").await.expect("anyone who reads it may acknowledge");
+    assert_eq!(asks(handbook).await.len(), 2);
+    // A new revision asks again and withdraws the old asks.
+    t.set(&rm, "Policy", handbook, json!({"text": "Be kind. Be on time."})).await.unwrap();
+    assert_eq!(t.act(&rm, "Policy", handbook, "publish").await.unwrap()["asked"], 2);
+    assert_eq!(
+        asks(handbook).await,
+        [
+            ("pat@secure.test".into(), 1, "Acknowledged".into()),
+            ("pat@secure.test".into(), 2, "Due".into()),
+            ("quinn@secure.test".into(), 1, "Withdrawn".into()),
+            ("quinn@secure.test".into(), 2, "Due".into())
+        ]
+    );
+    // Two acknowledgements at once make one.
+    let race = uid(&t.insert(&rm, "Policy", json!({"title": "Race", "owner": "rm@secure.test", "text": "0"})).await["id"]);
+    for i in 1..=20 {
+        t.set(&rm, "Policy", race, json!({"text": format!("revision {i}")})).await.unwrap();
+        t.act(&rm, "Policy", race, "publish").await.unwrap();
+        let (a, b) = tokio::join!(
+            t.k.run_action(&reader2, "Policy", race, "acknowledge", Value::Null),
+            t.k.run_action(&reader2, "Policy", race, "acknowledge", Value::Null)
+        );
+        assert!(a.is_ok() != b.is_ok(), "one of two at once: {a:?} {b:?}");
+        refused(if a.is_err() { a } else { b }, "invalid", "already");
+    }
+    let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
+    let acks: i64 = sqlx::query_scalar("select count(*) from e_policy_acknowledgement where tenant_id = $1 and policy = $2")
+        .bind(t.tenant)
+        .bind(race)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(acks, 20, "one per revision");
+    // Someone who joins the role is asked by the upkeep; someone who leaves is released.
+    let joe = t.user("joe@secure.test", &["Policy Reader"]).await;
+    t.k.set_user_roles(&t.admin, reader2.user, &[]).await.unwrap();
+    t.set(&rm, "GrcSettings", settings, json!({"reminder_days": 0})).await.unwrap();
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(1)).await.unwrap();
+    let joe2 = ask_of(handbook, "joe@secure.test", 2).await;
+    let pat2 = ask_of(handbook, "pat@secure.test", 2).await;
+    assert_eq!(t.get("PolicyAttestation", joe2).await["due_on"], json!((today + Duration::days(31)).to_string()), "his day counts from when he joined");
+    assert_eq!(sends(joe2, "grc.policy_to_acknowledge").await, 1);
+    assert_eq!(t.get("PolicyAttestation", ask_of(handbook, "quinn@secure.test", 2).await).await["status"], "Withdrawn");
+    // A reminder goes once before the day, even from two upkeeps at once; with reminder days 0, none.
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(16)).await.unwrap();
+    assert_eq!(sends(pat2, "grc.policy_reminder").await, 0, "reminder days 0");
+    t.set(&rm, "GrcSettings", settings, json!({"reminder_days": 14})).await.unwrap();
+    let (a, b) = tokio::join!(
+        ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(16)),
+        ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(16))
+    );
+    a.unwrap();
+    b.unwrap();
+    assert_eq!((sends(pat2, "grc.policy_reminder").await, sends(joe2, "grc.policy_reminder").await), (1, 0), "14 days before hers; 15 before his, not yet");
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(17)).await.unwrap();
+    assert_eq!((sends(pat2, "grc.policy_reminder").await, sends(joe2, "grc.policy_reminder").await), (1, 1), "once each");
+    // A reader sees only their own asks; a Risk Manager sees who has not acknowledged.
+    let mine = t.k.list(&joe, "PolicyAttestation", &ListQuery::default()).await.unwrap().rows;
+    assert_eq!(mine.len(), 1, "joe's own ask");
+    let open = ListQuery {
+        filters: vec![ferrum_kernel::Filter::eq("policy", json!(handbook.to_string())), ferrum_kernel::Filter::eq("status", json!("Due"))],
+        ..Default::default()
+    };
+    let mut not_yet: Vec<String> =
+        t.k.list(&rm, "PolicyAttestation", &open).await.unwrap().rows.iter().map(|r| r["person"].as_str().unwrap().to_string()).collect();
+    not_yet.sort();
+    assert_eq!(not_yet, ["joe@secure.test", "pat@secure.test"], "who has not acknowledged the current revision");
+    // Nobody but the app writes an attestation.
+    refused(t.set(&rm, "PolicyAttestation", pat2, json!({"status": "Acknowledged"})).await, "forbidden", "");
+    refused(
+        t.k.insert(&rm, "PolicyAttestation", obj(json!({"policy": handbook.to_string(), "revision": 2, "person": "rm@secure.test"}))).await,
+        "forbidden",
+        "",
+    );
+    // Past its day an ask is overdue; retiring the policy withdraws it.
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(31)).await.unwrap();
+    assert_eq!(
+        (t.get("PolicyAttestation", pat2).await["overdue"].as_bool(), t.get("PolicyAttestation", joe2).await["overdue"].as_bool()),
+        (Some(true), Some(false))
+    );
+    t.act(&reader, "Policy", handbook, "acknowledge").await.unwrap();
+    let pat2_doc = t.get("PolicyAttestation", pat2).await;
+    assert_eq!((pat2_doc["status"].as_str(), pat2_doc["overdue"].as_bool()), (Some("Acknowledged"), Some(false)));
+    t.act(&rm, "Policy", handbook, "retire").await.unwrap();
+    assert_eq!(t.get("PolicyAttestation", joe2).await["status"], "Withdrawn");
+
     // ───────────── who may do what ─────────────
     refused(t.k.insert(&ra, "Risk", obj(risk("Mine", "ra@secure.test", [1, 1, 1, 1, 1, 1], "Open", json!([])))).await, "forbidden", "");
     refused(t.k.insert(&reader, "Policy", obj(json!({"title": "Mine", "text": "x"}))).await, "forbidden", "");
@@ -348,7 +495,7 @@ async fn scenario() {
     let grc = ferrum_app_grc::packages().unwrap().into_iter().find(|p| p.name() == "grc").unwrap();
     let mut declared: Vec<&str> = grc.manifest.personal_data.iter().map(|d| d.entity.as_str()).collect();
     declared.sort();
-    assert_eq!(declared, ["Control", "ControlTest", "Finding", "Policy", "PolicyAcknowledgement", "Risk", "RiskAcceptance"]);
+    assert_eq!(declared, ["Control", "ControlTest", "Finding", "Policy", "PolicyAcknowledgement", "PolicyAttestation", "Risk", "RiskAcceptance"]);
     let mut handed: Vec<&str> = grc.manifest.handover.iter().map(|h| h.entity.as_str()).collect();
     handed.sort();
     assert_eq!(handed, ["Control", "Finding", "Policy", "Risk"]);

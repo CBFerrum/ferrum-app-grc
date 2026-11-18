@@ -1,0 +1,25 @@
+{
+  "accounts": null,
+  "default_company": null,
+  "display_timezone": "UTC",
+  "fiscal_year_start_month": 1,
+  "packages": [
+    "core",
+    "grc"
+  ],
+  "scopes": {},
+  "shell_v2": true,
+  "tenant": "01a1cdeb-1585-7677-ab18-d6cd4cef40f7",
+  "timezone": "UTC",
+  "today": "2026-11-18",
+  "two_factor_setup": false,
+  "user": {
+    "email": "pat@secure.test",
+    "full_name": "Pat Reader",
+    "id": "01a1cdeb-1592-7353-9e49-69fca11ba7f3",
+    "is_admin": false,
+    "roles": [
+      "Policy Reader"
+    ]
+  }
+}

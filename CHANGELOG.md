@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.0
+
+Needs the same platform as 0.3.0. Package `grc` 0.3.0: new entity Attestation (`PolicyAttestation`), two Policy
+fields (`audience_role`, `acknowledge_within_days`) and a unique key on Policy Acknowledgement (policy, revision,
+person). An existing workspace's policies have no audience, so nothing is asked and nothing changes. `ui/dist`
+rebuilt: the home's "To acknowledge" queue.
+
+- **Who is asked, by when, and who has not.** A policy names an audience role and the days people have. Publishing
+  a revision asks each active holder once (`asked` in the answer) and tells them (`grc.policy_to_acknowledge`); the
+  asks of earlier revisions are withdrawn. Acknowledging closes the person's ask; retiring withdraws the open ones.
+  "Who has not acknowledged the current revision of a policy?", which the assistant suggested and nothing could
+  answer, is now the list of Attestations still Due.
+- **Joiners, leavers, reminders.** Upkeep asks people who joined the role since, releases those who left it,
+  reminds once before the day (`grc.policy_reminder`, the reminder days of Governance Settings) and marks late asks
+  overdue.
+- **One acknowledgement per revision,** now also a unique key, as is one ask per person and revision.
+- A reader sees their own asks on the home page; a Risk Manager sees who has not acknowledged.
+
 ## 0.3.0
 
 Needs the same platform as 0.2.0. Package `grc` 0.2.0: new fields (`GrcSettings.reminder_days`, a hidden

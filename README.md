@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.3.0-7c3aed?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-7c3aed?style=flat-square)](CHANGELOG.md)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
 ![Rust](https://img.shields.io/badge/Rust-server-b7410e?style=flat-square&logo=rust)
@@ -44,9 +44,9 @@ what and until when. It ships no control frameworks: a control names the framewo
 
 | | |
 |---|---|
-| **Version** | 0.3.0 (platform `>=0.4.0, <0.5`) |
+| **Version** | 0.4.0 (platform `>=0.4.0, <0.5`) |
 | **Kind** | Own interface at `/grc/`, plus Ferrum's generic records screens for every entity |
-| **What it adds** | 7 entities and a settings record (Risk, Control, Control Test, Risk Acceptance, Policy, Policy Acknowledgement, Finding), 2 child tables, 3 roles, 1 menu module, 3 numbered record types |
+| **What it adds** | 8 entities and a settings record (Risk, Control, Control Test, Risk Acceptance, Policy, Policy Acknowledgement, Attestation, Finding), 2 child tables, 3 roles, 1 menu module, 3 numbered record types |
 | **Depends on** | Ferrum core only |
 | **Works with** | The Ferrum assistant, audit trail, notifications and Studio; no other app is required |
 | **Languages** | English, Arabic (right to left), Hindi; a workspace can change any interface word |
@@ -174,6 +174,16 @@ what and until when. It ships no control frameworks: a control names the framewo
 - **Policy Acknowledgement.** A record of who read which revision and when. People cannot edit it.
 - **Retire It.** A retired policy is no longer read.
 - **Policy Reader.** A role that reads only published policies and sees its own acknowledgements.
+- **Asked to acknowledge.** A policy may name an audience role and the days people have (default 14). Publishing a
+  revision asks each active holder of the role once (an Attestation, due on that day) and tells them; the asks of
+  earlier revisions are withdrawn. The answer says how many were asked: 0 means nobody holds the role, or the name
+  is not a role. Give the audience's people Policy Reader too, or they are asked about a policy they cannot open.
+- **Who has not.** Attestations still Due are the people who have not acknowledged; a Risk Manager lists and
+  exports them, a reader sees only their own, on the home page under "To acknowledge".
+- **Joiners, leavers, reminders.** Upkeep asks people who join the role later (their day counts from then),
+  withdraws the asks of people who left it or were deactivated, reminds once the reminder days before the day, and
+  marks a late ask overdue. Acknowledging closes the ask; retiring the policy withdraws the open ones.
+- **Once.** One acknowledgement per person and revision, and one ask, each kept by a unique key.
 - **Revision rule.** A person has acknowledged a policy when they acknowledged its current revision, so a new
   revision asks everyone again.
 
@@ -242,7 +252,7 @@ flowchart LR
     P["Policy (draft)"] -->|"Publish It"| V["Published, revision n"]
     V -->|"I Have Read It"| K["Acknowledgement of revision n"]
     V -->|"New text, Publish It"| W["Published, revision n+1"]
-    W -->|"everyone again"| K
+    W -->|"its audience asked again"| K
     V -->|"Retire It"| X["Retired"]
 ```
 
@@ -258,6 +268,7 @@ Each person acknowledges each revision once. New text means a new revision and a
 | **Risk Acceptance** | A risk taken on for a time | Number, risk, justification, expires on, status, approver, decided on |
 | **Policy** | What people follow | Title, owner, text, status, revision, published text, published on, review by |
 | **Policy Acknowledgement** | Who read which revision | Policy, revision, person, acknowledged at |
+| **Attestation** | One person asked to acknowledge one revision | Policy, revision, person, due on, status (Due, Acknowledged, Withdrawn), acknowledged at, overdue |
 | **Finding** | A gap an audit or test found | Number, title, severity, control, risk, owner, due on, status, remediation, overdue |
 | **Governance Settings** | Workspace settings | Tolerance, test interval |
 | Control on a risk (child) | A control named by a risk | Control |
@@ -301,7 +312,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 | Several approvers and reminders before expiry | ❌ | ✅ | ✅ | ✅ | 🟡 | 🟡 |
 | Policy revisions kept | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Acknowledgement of each revision | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 |
-| Attestation campaigns with audience and reminders | ❌ | ✅ | ✅ | ✅ | ✅ | 🟡 |
+| Attestation campaigns with audience and reminders | 🟡² | ✅ | ✅ | ✅ | ✅ | 🟡 |
 | Findings with owner, severity and due day | ✅ | ✅ | ✅ | ✅ | 🟡 | ✅ |
 | Remediation plans with milestones and retest | 🟡² | ✅ | ✅ | ✅ | 🟡 | 🟡 |
 | Audit engagements and auditor access | ❌ | ✅ | ✅ | ✅ | ✅ | 🟡 |
@@ -315,6 +326,8 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 | Open source | ✅ | ❌ | ❌ | ❌ | ❌ | 🟡⁶ |
 
 ¹ A control names the requirements it answers by identifier, as text. There is no framework library.
+
+² The audience is one role per policy and a revision is the campaign; no audience by team or list of people yet.
 ² One remediation text and three finding states; no milestones or retest.
 ³ The home page lists queues; there is no heat map or shipped report.
 ⁴ Same platform and database as the other Ferrum apps; no connector that collects evidence from them yet.
@@ -347,6 +360,8 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 ### ✅ Recently shipped
 
+- [x] **0.4.0.** Policies ask an audience role to acknowledge each revision by a day, remind them, and list who
+  has not.
 - [x] **0.3.0.** A decided acceptance keeps its terms; expiry keeps a treatment chosen since; people are told
   before acceptances end and findings fall due; its people's data declared and handed over.
 - [x] **0.2.0.** Upkeep runs one workspace at a time, on whichever replica is free; needs Ferrum 0.4.0.
@@ -363,8 +378,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 - [ ] **Framework libraries.** Frameworks and requirements mapped to controls, with coverage, because every audit asks for it.
 - [ ] **Compliance assessments** of a framework against the controls in place.
-- [ ] **Policy attestation campaigns** with an audience, reminders and a list of who has not acknowledged.
-- [ ] **Several approvers** on an acceptance, and reminders before it expires.
+- [ ] **Several approvers** on an acceptance.
 - [ ] **Reports**: risk heat map, control coverage, overdue findings and an audit export.
 - [ ] **Test assignment.** A test due on a day for a named tester.
 
@@ -438,7 +452,7 @@ src/
   lib.rs                      registers the package, hooks and the upkeep
   risks.rs                    scoring, treatment rules, acceptances and their expiry
   controls.rs                 tests, standing, stale controls and findings
-  policies.rs                 publish, revisions, acknowledgement and retire
+  policies.rs                 publish, revisions, acknowledgement, retire, and the audience's asks
 packages/grc/                 entities, roles and the menu module
 ui/src/                       the interface at /grc/ (home queues, locales ar and hi)
 tests/grc_it.rs               the security-programme walk

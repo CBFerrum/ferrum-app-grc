@@ -51,8 +51,8 @@ pub fn reports() -> Vec<Arc<dyn ReportSource>> {
 }
 
 /// One workspace's upkeep, which the platform runs about once a minute where GRC is installed, on whichever replica is
-/// free, and may run again: acceptances expired, controls' standing kept current, findings overdue, and their people
-/// told, each once, on the workspace's own day.
+/// free, and may run again: acceptances expired, controls' standing kept current, findings overdue, policies'
+/// audiences asked and reminded, and their people told, each once, on the workspace's own day.
 pub async fn maintenance(k: &Kernel, tenant: Uuid) -> Result<()> {
     upkeep(k, tenant, None).await
 }
@@ -74,6 +74,7 @@ async fn upkeep(k: &Kernel, tenant: Uuid, on: Option<NaiveDate>) -> Result<()> {
         risks::remind(k, &ctx, &mut tx, today, days).await?;
         controls::remind(k, &ctx, &mut tx, today, days).await?;
     }
+    policies::upkeep(k, &ctx, &mut tx, today, days).await?;
     tx.commit().await?;
     Ok(())
 }

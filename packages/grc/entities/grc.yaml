@@ -128,13 +128,15 @@
     - {name: published_text, type: markdown, read_only: true, no_copy: true, description: "The text at its revision"}
     - {name: published_on, type: date, read_only: true, no_copy: true, in_list: true}
     - {name: review_by, type: date}
+    - {name: audience_role, type: data, max_length: 100, label: Asked To Acknowledge, description: "The role whose holders are asked to acknowledge each revision. Empty: nobody is asked; anyone who reads it may still acknowledge"}
+    - {name: acknowledge_within_days, type: int, default: 14, min: 1, max: 365, description: "Days each person asked has to acknowledge a revision"}
   actions:
     - {name: publish, label: Publish It, permission: write, condition: "doc.status != 'Retired'",
-       contract: {completion: "The policy is Published; with new text it is at its next revision, which everyone acknowledges again"}}
+       contract: {completion: "The policy is Published; with new text it is at its next revision, and each holder of its audience role is asked once to acknowledge it by its day"}}
     - {name: acknowledge, label: I Have Read It, permission: read, condition: "doc.status == 'Published'",
-       contract: {completion: "The caller's acknowledgement of the policy's current revision is recorded, once"}}
+       contract: {completion: "The caller's acknowledgement of the current revision is recorded once, and their attestation, if they were asked, is Acknowledged"}}
     - {name: retire, label: Retire It, permission: write, condition: "doc.status == 'Published'",
-       contract: {completion: "The policy is Retired and can no longer be acknowledged"}}
+       contract: {completion: "The policy is Retired; nobody is asked for it any more"}}
   list: {columns: [title, owner, revision, status, published_on], sort: title asc}
 
 - name: PolicyAcknowledgement
@@ -148,7 +150,29 @@
     - {name: revision, type: int, required: true, read_only: true, in_list: true}
     - {name: person, type: email, required: true, read_only: true, in_list: true, in_filter: true}
     - {name: acknowledged_at, type: datetime, read_only: true, in_list: true}
+  unique: [[policy, revision, person]]
   list: {columns: [policy, revision, person, acknowledged_at], sort: acknowledged_at desc}
+
+- name: PolicyAttestation
+  label: Attestation
+  label_plural: Attestations
+  kind: master
+  module: grc
+  title_field: person
+  owner_fields: [person]
+  description: One person asked to acknowledge one revision of a policy by a day.
+  fields:
+    - {name: policy, type: link, to: Policy, required: true, read_only: true, in_list: true, in_filter: true}
+    - {name: revision, type: int, required: true, read_only: true, in_list: true}
+    - {name: person, type: email, required: true, read_only: true, in_list: true, in_filter: true}
+    - {name: due_on, type: date, read_only: true, in_list: true}
+    - {name: status, type: select, options: [Due, Acknowledged, Withdrawn], default: Due, read_only: true, in_list: true, in_filter: true}
+    - {name: acknowledged_at, type: datetime, read_only: true}
+    - {name: overdue, type: check, read_only: true, in_list: true, in_filter: true}
+    - {name: reminded_for, type: date, read_only: true, hidden: true}
+  unique: [[policy, revision, person]]
+  indexes: [[status, due_on]]
+  list: {columns: [policy, revision, person, due_on, status, overdue], sort: due_on asc}
 
 - name: Finding
   label: Finding

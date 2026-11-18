@@ -1,8 +1,9 @@
-// The register: risks by level (critical first), controls no longer effective, open findings, and
-// published policies. Each opens its record, where a policy is acknowledged.
+// The register: risks by level (critical first), controls no longer effective, open findings, policies
+// someone is asked to acknowledge, and published policies. Each opens its record, where a policy is acknowledged.
 
 import { useQuery } from "@tanstack/react-query";
 import { api, docPath, formatValue, t, isolate } from "@ferrum/client";
+import { can, useEntityMeta } from "@ferrum/records";
 import { Badge, ButtonLink, HomeSkeleton, LoadFailed, PageHead, PageStack, Queue, QueueGrid, QueueItem, type Tone, useShellTitle } from "@ferrum/kit";
 
 export interface Row {
@@ -34,16 +35,19 @@ const LIMIT = 5;
 
 export function Home() {
   useShellTitle(t("Governance and Risk"));
+  const manages = can(useEntityMeta("Policy").data?.permissions, "write");
   const q = useQuery({
     queryKey: ["grc", "register"],
     queryFn: async () => {
-      const [risks, controls, findings, policies] = await Promise.all([
+      const [risks, controls, findings, policies, asks] = await Promise.all([
         rows("Risk", []),
         rows("Control", [["status", "eq", "In Place"], ["effective", "eq", false]]),
         rows("Finding", [["status", "!=", "Closed"]], { sort: "due_on asc" }),
         rows("Policy", [["status", "eq", "Published"]], { sort: "title asc" }),
+        // A reader is served their own asks; a Risk Manager everyone's.
+        rows("PolicyAttestation", [["status", "eq", "Due"]], { sort: "due_on asc", titles: "true" }),
       ]);
-      return { risks: worstFirst(risks), controls, findings, policies };
+      return { risks: worstFirst(risks), controls, findings, policies, asks };
     },
   });
   const create = (
@@ -54,7 +58,7 @@ export function Home() {
   if (q.isPending) return (
     <PageStack>
       <PageHead title={t("The register")} />
-      <HomeSkeleton queues={4} />
+      <HomeSkeleton queues={5} />
     </PageStack>
   );
   if (q.isError) return (
@@ -63,7 +67,7 @@ export function Home() {
       <LoadFailed error={q.error} onRetry={() => void q.refetch()} />
     </PageStack>
   );
-  const { risks, controls, policies } = q.data;
+  const { risks, controls, policies, asks } = q.data;
   // What is late comes before what is merely due.
   const findings = [...q.data.findings].sort((a, b) => Number(Boolean(b.overdue)) - Number(Boolean(a.overdue)));
   const summary = [findings.length && t("{n} open findings", { n: findings.length }), controls.length && t("{n} controls to test", { n: controls.length })].filter(Boolean).join(" · ");
@@ -86,6 +90,19 @@ export function Home() {
             <QueueItem key={r.id} to={`/e/Risk/${r.id}`} title={isolate(String(r.title))} meta={isolate(String(r.treatment ?? ""))} trailing={<Badge tone={levelTone(r.level)}>{isolate(`${String(r.level ?? "")} ${String(r.current_score ?? "")}`)}</Badge>} />
           ))}
         </Queue>
+        {asks.length > 0 && (
+          <Queue title={manages ? t("Awaiting acknowledgement") : t("To acknowledge")} count={asks.length} tone={asks.some((a) => a.overdue) ? "attention" : "default"} more={{ to: "/e/PolicyAttestation", count: asks.length - LIMIT }}>
+            {asks.slice(0, LIMIT).map((a) => (
+              <QueueItem
+                key={a.id}
+                to={`/e/Policy/${String(a.policy)}`}
+                title={isolate(String((a._titles as Record<string, unknown> | undefined)?.policy ?? a.policy))}
+                meta={isolate([manages ? String(a.person ?? "") : "", a.due_on ? t("due {day}", { day: day(a.due_on) }) : ""].filter(Boolean).join(" · "))}
+                trailing={a.overdue ? <Badge tone="red">{t("Overdue")}</Badge> : null}
+              />
+            ))}
+          </Queue>
+        )}
         <Queue title={t("Policies")} count={policies.length} more={{ to: "/e/Policy", count: policies.length - LIMIT }}>
           {policies.slice(0, LIMIT).map((p) => (
             <QueueItem key={p.id} to={`/e/Policy/${p.id}`} title={isolate(String(p.title))} meta={p.revision ? t("revision {revision}", { revision: String(p.revision) }) : undefined} />
