@@ -22,6 +22,41 @@
   fields:
     - {name: control, type: link, to: Control, required: true, in_list: true}
 
+- name: Threat
+  label: Threat
+  label_plural: Threats
+  kind: master
+  module: grc
+  title_field: threat_name
+  description: Something that could cause a risk to happen.
+  fields:
+    - {name: threat_name, type: data, required: true, unique: true, in_list: true, label: Name}
+    - {name: description, type: text}
+    - {name: disabled, type: check, in_list: true, in_filter: true}
+  list: {columns: [threat_name, disabled], sort: threat_name asc}
+
+- name: Vulnerability
+  label: Vulnerability
+  label_plural: Vulnerabilities
+  kind: master
+  module: grc
+  title_field: vulnerability_name
+  description: A weakness a threat could use.
+  fields:
+    - {name: vulnerability_name, type: data, required: true, unique: true, in_list: true, label: Name}
+    - {name: description, type: text}
+    - {name: disabled, type: check, in_list: true, in_filter: true}
+  list: {columns: [vulnerability_name, disabled], sort: vulnerability_name asc}
+
+- {name: RiskThreat, label: Threat, kind: child, fields: [{name: threat, type: link, to: Threat, required: true, in_list: true}]}
+- {name: RiskVulnerability, label: Vulnerability, kind: child, fields: [{name: vulnerability, type: link, to: Vulnerability, required: true, in_list: true}]}
+- name: RiskAsset
+  label: Asset
+  kind: child
+  fields:
+    - {name: asset, type: data, required: true, max_length: 200, in_list: true, description: "What is at stake: a system, a site, a data set, a supplier"}
+    - {name: note, type: data, max_length: 300, in_list: true}
+
 - name: Risk
   label: Risk
   label_plural: Risk Register
@@ -46,6 +81,9 @@
     - {name: level, type: select, options: [Low, Medium, High, Critical], read_only: true, in_list: true, in_filter: true, description: "The current score's"}
     - {name: treatment, type: select, options: [Open, Mitigate, Accept, Avoid, Transfer], default: Open, in_list: true, in_filter: true}
     - {name: controls, type: table, of: RiskControl}
+    - {name: threats, type: table, of: RiskThreat}
+    - {name: vulnerabilities, type: table, of: RiskVulnerability}
+    - {name: assets, type: table, of: RiskAsset, description: "What it threatens"}
     - {name: review_by, type: date, in_list: true}
   numbering: {template: "RSK-{YYYY}-{seq:4}"}
   list: {columns: [number, title, owner, current_score, level, treatment], sort: created_at desc}
@@ -91,6 +129,116 @@
   kind: child
   fields:
     - {name: requirement, type: link, to: Requirement, required: true, in_list: true}
+
+- name: AssessmentRow
+  label: Requirement
+  kind: child
+  fields:
+    - {name: requirement, type: link, to: Requirement, required: true, read_only: true, in_list: true}
+    - {name: result, type: select, options: [Not Assessed, Compliant, Partially Compliant, Non-Compliant, Not Applicable], default: Not Assessed, in_list: true}
+    - {name: suggested, type: select, options: [Not Assessed, Compliant, Partially Compliant, Non-Compliant], read_only: true, in_list: true, label: Controls Say}
+    - {name: controls, type: int, read_only: true, in_list: true, description: "Controls in place that answer it"}
+    - {name: note, type: text}
+
+- name: ComplianceAssessment
+  label: Assessment
+  label_plural: Assessments
+  kind: master
+  module: grc
+  title_field: title
+  description: How the organisation stands against one framework, requirement by requirement, as of a day.
+  fields:
+    - {name: title, type: data, required: true, in_list: true}
+    - {name: framework, type: link, to: Framework, required: true, in_list: true, in_filter: true}
+    - {name: owner, type: email, required: true, in_list: true, in_filter: true}
+    - {name: due_on, type: date, in_list: true}
+    - {name: status, type: select, options: [In Progress, Complete], default: In Progress, read_only: true, no_copy: true, in_list: true, in_filter: true}
+    - {name: completed_on, type: date, read_only: true, no_copy: true}
+    - {name: rows, type: table, of: AssessmentRow, no_copy: true}
+    - {name: requirements, type: int, read_only: true, no_copy: true}
+    - {name: compliant, type: int, read_only: true, no_copy: true}
+    - {name: partial, type: int, read_only: true, no_copy: true, label: Partially Compliant}
+    - {name: non_compliant, type: int, read_only: true, no_copy: true}
+    - {name: not_applicable, type: int, read_only: true, no_copy: true}
+    - {name: not_assessed, type: int, read_only: true, no_copy: true}
+    - {name: coverage, type: percent, read_only: true, no_copy: true, in_list: true, description: "Compliant requirements out of those that apply"}
+  actions:
+    - name: refresh_assessment
+      label: Refresh It
+      permission: write
+      condition: "doc.status == 'In Progress'"
+      contract: {effect: transactional_action, returns: {type: object, properties: {rows: {type: integer}, added: {type: integer}}}, completion: "Every assessable requirement of the framework has a row, and each row shows what its controls say today; results already entered are unchanged"}
+    - name: accept_suggestions
+      label: Use What the Controls Say
+      permission: write
+      condition: "doc.status == 'In Progress'"
+      contract: {effect: transactional_action, returns: {type: object, properties: {taken: {type: integer}}}, completion: "Each row still Not Assessed whose controls say something takes that as its result; other rows are unchanged"}
+    - name: complete_assessment
+      label: Complete It
+      permission: write
+      condition: "doc.status == 'In Progress'"
+      contract: {effect: transactional_action, returns: {type: object, properties: {status: {type: string}, coverage: {type: [string, "null"]}}}, completion: "The assessment is Complete on the workspace's day; its rows can no longer be changed"}
+  numbering: {template: "ASM-{YYYY}-{seq:4}"}
+  list: {columns: [number, title, framework, owner, coverage, status], sort: created_at desc}
+
+- name: BusinessProcess
+  label: Business Process
+  label_plural: Business Processes
+  kind: master
+  module: grc
+  title_field: process_name
+  description: Something the organisation does that must keep running, and how long it can stop.
+  fields:
+    - {name: process_name, type: data, required: true, unique: true, in_list: true, label: Name}
+    - {name: owner, type: email, required: true, in_list: true, in_filter: true}
+    - {name: criticality, type: select, options: [Low, Medium, High, Critical], default: Medium, in_list: true, in_filter: true}
+    - {name: impact, type: text, description: "What stops, and who is hurt, when it stops"}
+    - {name: recovery_time_hours, type: int, min: 0, in_list: true, label: Recovery Time (Hours), description: "How soon it must be running again"}
+    - {name: recovery_point_hours, type: int, min: 0, in_list: true, label: Recovery Point (Hours), description: "How much recent data it can afford to lose"}
+    - {name: longest_outage_hours, type: int, min: 0, label: Longest Outage (Hours), description: "After this long, the harm cannot be undone"}
+    - {name: depends_on, type: text, description: "The systems, sites, suppliers and people it needs"}
+  list: {columns: [process_name, owner, criticality, recovery_time_hours, recovery_point_hours], sort: process_name asc}
+
+- {name: PlanProcess, label: Process, kind: child, fields: [{name: process, type: link, to: BusinessProcess, required: true, in_list: true}]}
+
+- name: ContinuityPlan
+  label: Continuity Plan
+  label_plural: Continuity Plans
+  kind: master
+  module: grc
+  title_field: plan_name
+  description: How the processes it covers are kept running or brought back. It is current while its last test passed and is still recent.
+  fields:
+    - {name: plan_name, type: data, required: true, unique: true, in_list: true, label: Name}
+    - {name: owner, type: email, required: true, in_list: true, in_filter: true}
+    - {name: status, type: select, options: [Draft, In Force, Retired], default: Draft, in_list: true, in_filter: true}
+    - {name: processes, type: table, of: PlanProcess}
+    - {name: document, type: attach, description: "The plan itself"}
+    - {name: test_every_days, type: int, required: true, default: 365, min: 1, max: 3650}
+    - {name: review_by, type: date}
+    - {name: last_tested_on, type: date, read_only: true, no_copy: true, in_list: true}
+    - {name: last_result, type: select, options: [Passed, Passed With Findings, Failed], read_only: true, no_copy: true, in_list: true}
+    - {name: current, type: check, read_only: true, no_copy: true, in_list: true, in_filter: true}
+  list: {columns: [plan_name, owner, status, last_tested_on, last_result, current], sort: plan_name asc}
+
+- name: PlanTest
+  label: Plan Test
+  label_plural: Plan Tests
+  kind: master
+  module: grc
+  title_field: plan
+  description: A test of a continuity plan on a day; it is the plan's last test while no later one exists.
+  fields:
+    - {name: plan, type: link, to: ContinuityPlan, required: true, in_list: true, in_filter: true}
+    - {name: tested_on, type: date, required: true, in_list: true}
+    - {name: tester, type: email, read_only: true, no_copy: true, in_list: true}
+    - {name: kind, type: select, options: [Walkthrough, Tabletop, Simulation, Full], default: Tabletop, in_list: true}
+    - {name: result, type: select, options: [Passed, Passed With Findings, Failed], required: true, in_list: true}
+    - {name: recovered_in_hours, type: int, min: 0, description: "How long recovery took in this test"}
+    - {name: met_recovery_time, type: check, read_only: true, in_list: true, description: "Recovery took no longer than the shortest recovery time of the plan's processes"}
+    - {name: evidence, type: table, of: ControlEvidence}
+    - {name: notes, type: text}
+  list: {columns: [plan, tested_on, kind, result, met_recovery_time, tester], sort: tested_on desc}
 
 - name: ControlEvidence
   label: Evidence
@@ -152,11 +300,11 @@
     - {name: reminded_for, type: date, read_only: true, hidden: true, no_copy: true}
   actions:
     - {name: accept_risk, label: Accept It, permission: write, condition: "doc.status == 'Draft'",
-       contract: {completion: "The acceptance is Accepted by the caller, a Risk Approver who does not own the risk, and the risk's treatment is Accept until the acceptance expires or is revoked"}}
+       contract: {effect: transactional_action, returns: {type: object, properties: {status: {type: string}}}, compensate_with: revoke_acceptance, completion: "The acceptance is Accepted by the caller, a Risk Approver who does not own the risk, and the risk's treatment is Accept until the acceptance expires or is revoked"}}
     - {name: reject_acceptance, label: Reject It, permission: write, condition: "doc.status == 'Draft'",
-       contract: {completion: "The acceptance is Rejected by the caller; the risk is unchanged"}}
+       contract: {effect: transactional_action, returns: {type: object, properties: {status: {type: string}}}, completion: "The acceptance is Rejected by the caller; the risk is unchanged"}}
     - {name: revoke_acceptance, label: Revoke It, permission: write, condition: "doc.status == 'Accepted'",
-       contract: {completion: "The acceptance is Revoked and the risk is Open again unless another acceptance still holds it"}}
+       contract: {effect: transactional_action, returns: {type: object, properties: {status: {type: string}}}, completion: "The acceptance is Revoked and the risk is Open again unless another acceptance still holds it"}}
   numbering: {template: "ACC-{YYYY}-{seq:4}"}
   list: {columns: [number, risk, expires_on, status, approver], sort: created_at desc}
 
@@ -180,11 +328,11 @@
     - {name: acknowledge_within_days, type: int, default: 14, min: 1, max: 365, description: "Days each person asked has to acknowledge a revision"}
   actions:
     - {name: publish, label: Publish It, permission: write, condition: "doc.status != 'Retired'",
-       contract: {completion: "The policy is Published; with new text it is at its next revision, and each holder of its audience role is asked once to acknowledge it by its day"}}
+       contract: {effect: external_effect, unknown_outcome: manual, returns: {type: object, properties: {status: {type: string}, revision: {type: integer}, asked: {type: integer}}}, completion: "The policy is Published; with new text it is at its next revision, and each holder of its audience role is asked once to acknowledge it by its day"}}
     - {name: acknowledge, label: I Have Read It, permission: read, condition: "doc.status == 'Published'",
-       contract: {completion: "The caller's acknowledgement of the current revision is recorded once, and their attestation, if they were asked, is Acknowledged"}}
+       contract: {effect: transactional_action, returns: {type: object, properties: {acknowledged: {type: integer}}}, completion: "The caller's acknowledgement of the current revision is recorded once, and their attestation, if they were asked, is Acknowledged"}}
     - {name: retire, label: Retire It, permission: write, condition: "doc.status == 'Published'",
-       contract: {completion: "The policy is Retired; nobody is asked for it any more"}}
+       contract: {effect: transactional_action, returns: {type: object, properties: {status: {type: string}}}, completion: "The policy is Retired; nobody is asked for it any more"}}
   list: {columns: [title, owner, revision, status, published_on], sort: title asc}
 
 - name: PolicyAcknowledgement
@@ -222,6 +370,60 @@
   indexes: [[status, due_on]]
   list: {columns: [policy, revision, person, due_on, status, overdue], sort: due_on asc}
 
+- name: NoticeRule
+  label: Notice Rule
+  label_plural: Notice Rules
+  kind: master
+  module: grc
+  title_field: rule_name
+  description: Who is told of an incident, and within how many hours of its detection.
+  fields:
+    - {name: rule_name, type: data, required: true, unique: true, in_list: true, label: Name}
+    - {name: recipient, type: data, required: true, in_list: true, description: "Who is told: an authority, the people affected, a customer"}
+    - {name: hours, type: int, required: true, min: 1, max: 8760, in_list: true, description: "Hours after detection by which they are told"}
+    - {name: personal_data_only, type: check, in_list: true, description: "Applies only to incidents that affected personal data"}
+    - {name: from_severity, type: select, options: [Low, Medium, High, Critical], default: Low, in_list: true, description: "Applies from this severity up"}
+    - {name: disabled, type: check, in_list: true, in_filter: true}
+  list: {columns: [rule_name, recipient, hours, personal_data_only, from_severity, disabled], sort: rule_name asc}
+
+- name: IncidentNotice
+  label: Notice
+  kind: child
+  fields:
+    - {name: rule, type: link, to: NoticeRule, read_only: true, in_list: true}
+    - {name: recipient, type: data, read_only: true, in_list: true}
+    - {name: due_at, type: datetime, read_only: true, in_list: true}
+    - {name: sent_at, type: datetime, in_list: true}
+    - {name: reference, type: data, max_length: 200, in_list: true, description: "The case number or message it was sent as"}
+
+- name: Incident
+  label: Incident
+  label_plural: Incidents
+  kind: master
+  module: grc
+  title_field: title
+  record_reads: open
+  description: Something that happened and harmed, or could have harmed, the organisation or the people whose data it holds.
+  fields:
+    - {name: title, type: data, required: true, in_list: true}
+    - {name: kind, type: select, options: [Security, Data Breach, Operational, Other], default: Security, in_list: true, in_filter: true}
+    - {name: severity, type: select, options: [Low, Medium, High, Critical], default: Medium, in_list: true, in_filter: true}
+    - {name: owner, type: email, required: true, in_list: true, in_filter: true}
+    - {name: detected_at, type: datetime, required: true, in_list: true}
+    - {name: contained_at, type: datetime}
+    - {name: resolved_at, type: datetime}
+    - {name: status, type: select, options: [Open, Contained, Resolved], default: Open, in_list: true, in_filter: true}
+    - {name: description, type: text}
+    - {name: personal_data_affected, type: check, in_filter: true}
+    - {name: people_affected, type: int, min: 0}
+    - {name: risk, type: link, to: Risk}
+    - {name: notices, type: table, of: IncidentNotice}
+    - {name: next_notice_due, type: datetime, read_only: true, no_copy: true, in_list: true}
+    - {name: notice_overdue, type: check, read_only: true, no_copy: true, in_list: true, in_filter: true}
+    - {name: lessons, type: text, description: "What was learned; a resolved incident says"}
+  numbering: {template: "INC-{YYYY}-{seq:4}"}
+  list: {columns: [number, title, severity, owner, detected_at, status, notice_overdue], sort: detected_at desc}
+
 - name: FindingStep
   label: Step
   kind: child
@@ -251,6 +453,7 @@
     - {name: steps, type: table, of: FindingStep, description: "What is done to fix it, each step owned and dated"}
     - {name: retest_required, type: check, in_filter: true, description: "It closes only after a test of its control, made after it was raised, found the control effective"}
     - {name: retest, type: link, to: ControlTest, description: "The test that showed the fix works"}
+    - {name: incident, type: link, to: Incident, in_filter: true, description: "The incident that showed it"}
     - {name: overdue, type: check, read_only: true, no_copy: true, in_list: true, in_filter: true}
     - {name: reminded_for, type: date, read_only: true, hidden: true, no_copy: true}
   numbering: {template: "FND-{YYYY}-{seq:4}"}

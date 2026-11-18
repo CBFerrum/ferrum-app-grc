@@ -91,7 +91,8 @@ async fn scenario() {
     let db = Db::connect(DbConfig { url, max_connections: 16, ..Default::default() }).await.expect("connect");
     sqlx::raw_sql("drop schema if exists public cascade; create schema public;").execute(&db.pool).await.expect("reset");
     let mut packages = ferrum_domain::packages().expect("platform packages");
-    packages.extend(ferrum_app_grc::packages().expect("app packages"));
+    // The connector to ITSM waits for a package this suite does not load; the others go in.
+    packages.extend(ferrum_app_grc::packages().expect("app packages").into_iter().filter(|p| !p.manifest.depends.iter().any(|d| d == "itsm")));
     packages.push(example_library());
     let catalog = Catalog::from_packages(packages).expect("catalog");
     let mut hooks = HookRegistry::default();
@@ -214,6 +215,30 @@ async fn scenario() {
     let ransom_id = uid(&ransom["id"]);
     let small = uid(&t.insert(&rm, "Risk", risk("Printer jams", "cfo@secure.test", [2, 3, 2, 3, 1, 1], "Accept", json!([]))).await["id"]);
     assert_eq!(t.get("Risk", small).await["level"], "Medium", "6, at the tolerance: accepted without an acceptance");
+    // A risk says what could cause it and what it threatens.
+    let phishing = uid(&t.insert(&rm, "Threat", json!({"threat_name": "Phishing"})).await["id"]);
+    let theft = uid(&t.insert(&rm, "Threat", json!({"threat_name": "Laptop theft"})).await["id"]);
+    let weak = uid(&t.insert(&rm, "Vulnerability", json!({"vulnerability_name": "Reused passwords"})).await["id"]);
+    let cause = |threats: &[Uuid], vulns: &[Uuid]| {
+        json!({"threats": threats.iter().map(|x| json!({"threat": x.to_string()})).collect::<Vec<_>>(),
+               "vulnerabilities": vulns.iter().map(|x| json!({"vulnerability": x.to_string()})).collect::<Vec<_>>(),
+               "assets": [{"asset": "Customer database", "note": "Main region"}, {"asset": "Payroll files"}]})
+    };
+    t.set(&rm, "Risk", ransom_id, cause(&[phishing, theft], &[weak])).await.expect("its causes and its stakes");
+    let r = t.get("Risk", ransom_id).await;
+    assert_eq!(["threats", "vulnerabilities", "assets"].map(|k| r[k].as_array().unwrap().len()), [2, 1, 2], "read back");
+    // A threat is listed once on a risk; so is a vulnerability.
+    refused(t.set(&rm, "Risk", ransom_id, cause(&[phishing, phishing], &[weak])).await, "invalid", "a threat is listed once");
+    refused(t.set(&rm, "Risk", ransom_id, cause(&[phishing], &[weak, weak])).await, "invalid", "a vulnerability is listed once");
+    // A switched-off threat is not added, and stays where it was.
+    t.set(&rm, "Threat", theft, json!({"disabled": true})).await.unwrap();
+    let flood_threat = uid(&t.insert(&rm, "Threat", json!({"threat_name": "River flood", "disabled": true})).await["id"]);
+    refused(t.set(&rm, "Risk", small, cause(&[flood_threat], &[])).await, "invalid", "River flood is switched off");
+    t.set(&rm, "Risk", ransom_id, json!({"description": "Encrypted shares"})).await.expect("Laptop theft stays on the risk");
+    assert_eq!(t.get("Risk", ransom_id).await["threats"].as_array().unwrap().len(), 2);
+    // Who may keep the libraries: not a Risk Approver, who reads them.
+    refused(t.k.insert(&ra, "Threat", obj(json!({"threat_name": "Mine"}))).await, "forbidden", "");
+    t.k.get(&ra, "Threat", phishing, false).await.expect("an approver reads a threat");
     // The scale does not shrink below a score in use.
     let five = |high: i64| json!({"scale": 5, "medium_from": 5, "high_from": high, "critical_from": 17});
     refused(
@@ -654,6 +679,248 @@ async fn scenario() {
     refused(t.k.import_rows(&ra, "Requirement", &sheet(&["E"])).await, "forbidden", "");
     assert!(!t.k.list(&ra, "Requirement", &ListQuery::default()).await.unwrap().rows.is_empty());
 
+    // ───────────── compliance assessments ─────────────
+    let base = uid(&t.insert(&rm, "Framework", fw("Assessment baseline")).await["id"]);
+    t.insert(&rm, "Requirement", req(base, "H", None, false)).await;
+    let r: Vec<Uuid> = {
+        let mut v = vec![];
+        for r in ["H.1", "H.2", "H.3", "H.4"] {
+            v.push(uid(&t.insert(&rm, "Requirement", req(base, r, Some("H"), true)).await["id"]));
+        }
+        v
+    };
+    let control = |name: &str, status: &str, answers: &[Uuid]| {
+        let mut c = json!({"control_name": name, "status": status});
+        c["requirements"] = maps(answers)["requirements"].clone();
+        c
+    };
+    let good = uid(&t.insert(&rm, "Control", control("Good control", "In Place", &[r[0], r[2]])).await["id"]);
+    let bad = uid(&t.insert(&rm, "Control", control("Bad control", "In Place", &[r[1], r[2]])).await["id"]);
+    t.insert(&rm, "Control", control("Planned control", "Planned", &[r[3]])).await;
+    t.insert(&rm, "ControlTest", test(good, today.to_string(), "Effective", proof.clone())).await;
+    t.insert(&rm, "ControlTest", test(bad, today.to_string(), "Ineffective", json!([]))).await;
+    // A new assessment has a row per assessable requirement, and the controls speak for each.
+    let asm =
+        uid(&t.insert(&rm, "ComplianceAssessment", json!({"title": "2026 assessment", "framework": base.to_string(), "owner": "rm@secure.test"})).await["id"]);
+    let rows_of = |d: &Doc| -> Vec<(Uuid, String, String, i64, Uuid)> {
+        d["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| {
+                (
+                    uid(&x["requirement"]),
+                    x["result"].as_str().unwrap().into(),
+                    x["suggested"].as_str().unwrap().into(),
+                    x["controls"].as_i64().unwrap(),
+                    uid(&x["id"]),
+                )
+            })
+            .collect()
+    };
+    let said = |d: &Doc| rows_of(d).into_iter().map(|(q, _, s, n, _)| (q, s, n)).collect::<Vec<_>>();
+    assert_eq!(
+        said(&t.get("ComplianceAssessment", asm).await),
+        [
+            (r[0], "Compliant".to_string(), 1),
+            (r[1], "Non-Compliant".to_string(), 1),
+            (r[2], "Partially Compliant".to_string(), 2),
+            (r[3], "Not Assessed".to_string(), 0)
+        ],
+        "four rows, none for the heading"
+    );
+    // Refreshing adds what the framework gained and keeps what was entered.
+    let set_results = |d: &Doc, results: &[(usize, &str)]| {
+        let rows = rows_of(d);
+        json!({"rows": rows.iter().enumerate().map(|(i, row)| match results.iter().find(|(j, _)| *j == i) {
+            Some((_, res)) => json!({"id": row.4.to_string(), "result": res}),
+            None => json!({"id": row.4.to_string()}),
+        }).collect::<Vec<_>>()})
+    };
+    let d = t.get("ComplianceAssessment", asm).await;
+    t.set(&rm, "ComplianceAssessment", asm, set_results(&d, &[(1, "Not Applicable")])).await.expect("a result entered");
+    let r5 = uid(&t.insert(&rm, "Requirement", req(base, "H.5", Some("H"), true)).await["id"]);
+    let out = t.act(&rm, "ComplianceAssessment", asm, "refresh_assessment").await.unwrap();
+    assert_eq!((out["rows"].as_i64(), out["added"].as_i64()), (Some(5), Some(1)));
+    let d = t.get("ComplianceAssessment", asm).await;
+    assert_eq!((rows_of(&d)[1].1.as_str(), rows_of(&d)[4].0), ("Not Applicable", r5), "kept, and the new one appended");
+    // Taking the suggestions fills only what was not assessed.
+    assert_eq!(t.act(&rm, "ComplianceAssessment", asm, "accept_suggestions").await.unwrap()["taken"], 2);
+    let results = |d: &Doc| rows_of(d).into_iter().map(|x| x.1).collect::<Vec<_>>();
+    let d = t.get("ComplianceAssessment", asm).await;
+    assert_eq!(results(&d), ["Compliant", "Not Applicable", "Partially Compliant", "Not Assessed", "Not Assessed"]);
+    // It completes only when every requirement is assessed.
+    refused(t.act(&rm, "ComplianceAssessment", asm, "complete_assessment").await, "invalid", "2 requirements are not assessed");
+    // The counts and the coverage.
+    t.set(&rm, "ComplianceAssessment", asm, set_results(&d, &[(3, "Compliant"), (4, "Not Applicable")])).await.unwrap();
+    let d = t.get("ComplianceAssessment", asm).await;
+    let counts = ["requirements", "compliant", "partial", "non_compliant", "not_applicable", "not_assessed"].map(|k| d[k].as_i64().unwrap());
+    assert_eq!(counts, [5, 2, 1, 0, 2, 0]);
+    let coverage = d["coverage"].as_str().map(|c| c.parse::<f64>().unwrap()).or(d["coverage"].as_f64());
+    assert_eq!(coverage, Some(66.67), "two of the three that apply");
+    let out = t.act(&rm, "ComplianceAssessment", asm, "complete_assessment").await.unwrap();
+    assert_eq!(out["status"], "Complete");
+    let done = t.get("ComplianceAssessment", asm).await;
+    assert_eq!(done["completed_on"], json!(today.to_string()));
+    refused(t.set(&rm, "ComplianceAssessment", asm, set_results(&done, &[(0, "Non-Compliant")])).await, "invalid", "kept as it was");
+    for action in ["refresh_assessment", "accept_suggestions", "complete_assessment"] {
+        refused(t.act(&rm, "ComplianceAssessment", asm, action).await, "invalid", "not available");
+    }
+    // Every row not applicable: no coverage. Rows come from the framework.
+    let second =
+        uid(&t.insert(&rm, "ComplianceAssessment", json!({"title": "Second look", "framework": base.to_string(), "owner": "rm@secure.test"})).await["id"]);
+    let d = t.get("ComplianceAssessment", second).await;
+    t.set(
+        &rm,
+        "ComplianceAssessment",
+        second,
+        set_results(&d, &[(0, "Not Applicable"), (1, "Not Applicable"), (2, "Not Applicable"), (3, "Not Applicable"), (4, "Not Applicable")]),
+    )
+    .await
+    .unwrap();
+    assert!(t.get("ComplianceAssessment", second).await["coverage"].is_null(), "nothing applies");
+    let mut fewer = set_results(&d, &[]);
+    fewer["rows"].as_array_mut().unwrap().pop();
+    refused(t.set(&rm, "ComplianceAssessment", second, fewer).await, "invalid", "rows come from the framework");
+    let mut more = set_results(&d, &[]);
+    more["rows"].as_array_mut().unwrap().push(json!({"requirement": r[0].to_string(), "result": "Compliant"}));
+    // A row's requirement is read-only, so the platform refuses a person's new row before the app's own words.
+    refused(t.set(&rm, "ComplianceAssessment", second, more).await, "invalid", "Requirement is required");
+    // Who may: a Risk Approver reads and is refused the actions; a Policy Reader does not read.
+    t.k.get(&ra, "ComplianceAssessment", second, false).await.expect("an approver reads");
+    refused(t.act(&ra, "ComplianceAssessment", second, "refresh_assessment").await, "forbidden", "");
+    assert!(t.k.get(&reader, "ComplianceAssessment", second, false).await.is_err(), "a reader does not");
+    // A control going stale later does not change a completed assessment.
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(400)).await.unwrap();
+    assert_eq!(t.get("Control", good).await["effective"], false, "stale by now");
+    assert_eq!(rows_of(&t.get("ComplianceAssessment", asm).await), rows_of(&done), "as it was completed");
+
+    // ───────────── incidents and the notices they owe ─────────────
+    let notice_rule = |name: &str, hours: i64, personal: bool, from: &str| json!({"rule_name": name, "recipient": format!("{name} desk"), "hours": hours, "personal_data_only": personal, "from_severity": from});
+    let authority = uid(&t.insert(&rm, "NoticeRule", notice_rule("Authority", 72, true, "Low")).await["id"]);
+    let customers = uid(&t.insert(&rm, "NoticeRule", notice_rule("Customers", 24, false, "High")).await["id"]);
+    let detected = Utc::now() - Duration::hours(80);
+    let incident = |title: &str, severity: &str, personal: bool| json!({"title": title, "kind": "Data Breach", "severity": severity, "owner": "rm@secure.test", "detected_at": detected.to_rfc3339(), "personal_data_affected": personal});
+    let when = |v: &Value| v.as_str().map(|x| chrono::DateTime::parse_from_rfc3339(x).unwrap().with_timezone(&Utc));
+    let dues = |d: &Doc| {
+        let mut v: Vec<(String, chrono::DateTime<Utc>)> =
+            d["notices"].as_array().unwrap().iter().map(|n| (n["rule"].as_str().unwrap().to_string(), when(&n["due_at"]).unwrap())).collect();
+        v.sort_by_key(|x| x.1);
+        v
+    };
+    let close = |a: Option<chrono::DateTime<Utc>>, b: chrono::DateTime<Utc>| a.is_some_and(|a| (a - b).num_seconds().abs() <= 1);
+    // An incident gets the notices its rules ask for.
+    let leak = uid(&t.insert(&rm, "Incident", incident("Customer list leaked", "High", true)).await["id"]);
+    let d = t.get("Incident", leak).await;
+    let due = dues(&d);
+    assert_eq!(due.iter().map(|x| x.0.clone()).collect::<Vec<_>>(), [customers.to_string(), authority.to_string()]);
+    assert!(close(Some(due[0].1), detected + Duration::hours(24)) && close(Some(due[1].1), detected + Duration::hours(72)), "{due:?}");
+    assert!(close(when(&d["next_notice_due"]), detected + Duration::hours(24)), "the earlier deadline");
+    // A rule that does not apply gives no notice.
+    let outage = uid(&t.insert(&rm, "Incident", incident("Mail outage", "High", false)).await["id"]);
+    assert_eq!(dues(&t.get("Incident", outage).await).len(), 1, "no personal data: the customers' notice only");
+    // A deadline passed unsent tells the owner once, even from two upkeeps at once.
+    let (a, b) = tokio::join!(ferrum_app_grc::maintenance_on(&k, tenant, today), ferrum_app_grc::maintenance_on(&k, tenant, today));
+    a.unwrap();
+    b.unwrap();
+    assert_eq!(t.get("Incident", leak).await["notice_overdue"], true);
+    assert_eq!(sends(leak, "grc.incident_notice_overdue").await, 1);
+    ferrum_app_grc::maintenance_on(&k, tenant, today).await.unwrap();
+    assert_eq!(sends(leak, "grc.incident_notice_overdue").await, 1, "once");
+    // Marking a notice sent moves on to the next deadline; all sent, none is next.
+    let sent = Utc::now() - Duration::hours(1);
+    let mark = |d: &Doc, which: &[Uuid]| {
+        json!({"notices": d["notices"].as_array().unwrap().iter().map(|n| {
+            let rule = uid(&n["rule"]);
+            if which.contains(&rule) { json!({"id": n["id"], "sent_at": sent.to_rfc3339(), "reference": "case 1"}) } else { json!({"id": n["id"]}) }
+        }).collect::<Vec<_>>()})
+    };
+    let d = t.get("Incident", leak).await;
+    t.set(&rm, "Incident", leak, mark(&d, &[customers])).await.expect("the customers were told");
+    let d = t.get("Incident", leak).await;
+    assert!(close(when(&d["next_notice_due"]), detected + Duration::hours(72)), "on to the authority's");
+    assert_eq!(d["notice_overdue"], false, "a later deadline is told in its turn");
+    t.set(&rm, "Incident", leak, mark(&d, &[customers, authority])).await.unwrap();
+    let d = t.get("Incident", leak).await;
+    assert!(d["next_notice_due"].is_null() && d["notice_overdue"] == false);
+    // A sent notice survives its rule being switched off; an unsent one goes.
+    t.set(&rm, "NoticeRule", customers, json!({"disabled": true})).await.unwrap();
+    t.set(&rm, "Incident", leak, json!({"description": "Exported by mistake"})).await.unwrap();
+    t.set(&rm, "Incident", outage, json!({"description": "Relay down"})).await.unwrap();
+    assert_eq!((dues(&t.get("Incident", leak).await).len(), dues(&t.get("Incident", outage).await).len()), (2, 0));
+    // Times are in order.
+    let mut early = incident("Back to front", "Low", false);
+    early["contained_at"] = json!((detected - Duration::hours(1)).to_rfc3339());
+    refused(t.k.insert(&rm, "Incident", obj(early)).await, "invalid", "is after it was detected");
+    let mut future = incident("Not yet", "Low", false);
+    future["detected_at"] = json!((Utc::now() + Duration::hours(2)).to_rfc3339());
+    refused(t.k.insert(&rm, "Incident", obj(future)).await, "invalid", "is now or before");
+    // A resolved incident says what was learned, and is dated when resolved.
+    refused(t.set(&rm, "Incident", outage, json!({"status": "Resolved"})).await, "invalid", "says what was learned");
+    t.set(&rm, "Incident", outage, json!({"status": "Resolved", "lessons": "A second relay"})).await.unwrap();
+    assert!(t.get("Incident", outage).await["resolved_at"].as_str().is_some(), "dated");
+    // Who may: a Risk Approver reads and cannot write; a Policy Reader does not read.
+    t.k.get(&ra, "Incident", leak, false).await.expect("an approver reads");
+    refused(t.set(&ra, "Incident", leak, json!({"description": "x"})).await, "forbidden", "");
+    assert!(t.k.get(&reader, "Incident", leak, false).await.is_err());
+    // A finding names its incident.
+    let mut from_incident = finding("Exports not reviewed", (today + Duration::days(20)).to_string());
+    from_incident["incident"] = json!(leak.to_string());
+    let f = uid(&t.insert(&rm, "Finding", from_incident).await["id"]);
+    assert_eq!(t.get("Finding", f).await["incident"], json!(leak.to_string()));
+
+    // ───────────── business continuity ─────────────
+    let process =
+        |name: &str, rto: Option<i64>| json!({"process_name": name, "owner": "rm@secure.test", "recovery_time_hours": rto, "longest_outage_hours": 24});
+    // A process recovers before its longest outage.
+    let mut slow = process("Slow", Some(10));
+    slow["longest_outage_hours"] = json!(8);
+    refused(t.k.insert(&rm, "BusinessProcess", obj(slow)).await, "invalid", "no longer than the longest outage");
+    let p4 = uid(&t.insert(&rm, "BusinessProcess", process("Payroll", Some(4))).await["id"]);
+    let p8 = uid(&t.insert(&rm, "BusinessProcess", process("Invoicing", Some(8))).await["id"]);
+    let loose = uid(&t.insert(&rm, "BusinessProcess", process("Archiving", None)).await["id"]);
+    let covers = |ids: &[Uuid]| ids.iter().map(|x| json!({"process": x.to_string()})).collect::<Vec<_>>();
+    let plan = uid(&t
+        .insert(
+            &rm,
+            "ContinuityPlan",
+            json!({"plan_name": "Finance recovery", "owner": "rm@secure.test", "processes": covers(&[p4, p8]), "test_every_days": 30}),
+        )
+        .await["id"]);
+    refused(t.set(&rm, "ContinuityPlan", plan, json!({"processes": covers(&[p4, p4])})).await, "invalid", "a process is listed once");
+    let drill = |plan: Uuid, on: String, result: &str, hours: Option<i64>, evidence: Value| json!({"plan": plan.to_string(), "tested_on": on, "result": result, "recovered_in_hours": hours, "evidence": evidence});
+    // A plan is tested once it is in force.
+    refused(t.k.insert(&rm, "PlanTest", obj(drill(plan, today.to_string(), "Passed", Some(4), proof.clone()))).await, "invalid", "once it is in force");
+    t.set(&rm, "ContinuityPlan", plan, json!({"status": "In Force"})).await.unwrap();
+    // A passed test has its evidence; a failed one leaves the plan not current.
+    refused(t.k.insert(&rm, "PlanTest", obj(drill(plan, today.to_string(), "Passed", Some(4), json!([])))).await, "invalid", "a passed test has its evidence");
+    t.insert(&rm, "PlanTest", drill(plan, (today - Duration::days(2)).to_string(), "Failed", Some(12), json!([]))).await;
+    assert_eq!(t.get("ContinuityPlan", plan).await["current"], false, "failed");
+    // A passed test makes a plan current; recovery is measured against the shortest objective.
+    let five = t.insert(&rm, "PlanTest", drill(plan, (today - Duration::days(1)).to_string(), "Passed", Some(5), proof.clone())).await;
+    assert_eq!(five["met_recovery_time"], false, "5 hours against 4");
+    assert_eq!(five["tester"], "rm@secure.test");
+    let four = t.insert(&rm, "PlanTest", drill(plan, today.to_string(), "Passed", Some(4), proof.clone())).await;
+    assert_eq!(four["met_recovery_time"], true);
+    let p = t.get("ContinuityPlan", plan).await;
+    assert_eq!(
+        (p["current"].as_bool(), p["last_tested_on"].as_str(), p["last_result"].as_str()),
+        (Some(true), Some(today.to_string().as_str()), Some("Passed"))
+    );
+    // An older test entered later is not the last.
+    t.insert(&rm, "PlanTest", drill(plan, (today - Duration::days(5)).to_string(), "Failed", None, json!([]))).await;
+    assert_eq!(t.get("ContinuityPlan", plan).await["current"], true, "the latest by day stands");
+    // No objective on any process: not met.
+    let other = uid(&t
+        .insert(&rm, "ContinuityPlan", json!({"plan_name": "Archive recovery", "owner": "rm@secure.test", "status": "In Force", "processes": covers(&[loose])}))
+        .await["id"]);
+    assert_eq!(t.insert(&rm, "PlanTest", drill(other, today.to_string(), "Passed", Some(1), proof.clone())).await["met_recovery_time"], false);
+    // Time makes a plan stale.
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(31)).await.unwrap();
+    assert_eq!(t.get("ContinuityPlan", plan).await["current"], false, "31 days on a 30-day interval");
+    // Who may: a Risk Approver does not record a test.
+    refused(t.k.insert(&ra, "PlanTest", obj(drill(plan, today.to_string(), "Passed", Some(4), proof.clone()))).await, "forbidden", "");
+
     // ───────────── who may do what ─────────────
     refused(t.k.insert(&ra, "Risk", obj(risk("Mine", "ra@secure.test", [1, 1, 1, 1, 1, 1], "Open", json!([])))).await, "forbidden", "");
     refused(t.k.insert(&reader, "Policy", obj(json!({"title": "Mine", "text": "x"}))).await, "forbidden", "");
@@ -664,18 +931,36 @@ async fn scenario() {
     let mut declared: Vec<&str> = grc.manifest.personal_data.iter().map(|d| d.entity.as_str()).collect();
     declared.sort();
     declared.dedup();
-    assert_eq!(declared, ["Control", "ControlTest", "Finding", "Policy", "PolicyAcknowledgement", "PolicyAttestation", "Risk", "RiskAcceptance"]);
+    assert_eq!(
+        declared,
+        [
+            "BusinessProcess",
+            "ComplianceAssessment",
+            "ContinuityPlan",
+            "Control",
+            "ControlTest",
+            "Finding",
+            "Incident",
+            "PlanTest",
+            "Policy",
+            "PolicyAcknowledgement",
+            "PolicyAttestation",
+            "Risk",
+            "RiskAcceptance"
+        ]
+    );
     let mut handed: Vec<&str> = grc.manifest.handover.iter().map(|h| h.entity.as_str()).collect();
     handed.sort();
-    assert_eq!(handed, ["Control", "Finding", "Policy", "Risk"]);
+    assert_eq!(handed, ["BusinessProcess", "ComplianceAssessment", "ContinuityPlan", "Control", "Finding", "Incident", "Policy", "Risk"]);
     let theirs = t.k.personal_data(&t.admin, "rm@secure.test").await.expect("their data").to_string();
     for f in [f1, f2, f3, quiet] {
         assert!(theirs.contains(&f.to_string()), "the findings rm owns are hers: {f}");
     }
     let actions: Vec<_> = grc.entities.iter().flat_map(|e| e.actions.iter()).collect();
-    assert_eq!(actions.len(), 6);
+    assert_eq!(actions.len(), 9);
     for a in actions {
         assert!(a.contract.as_ref().and_then(|c| c.completion.as_deref()).is_some_and(|c| !c.is_empty()), "{} says what done means", a.name);
+        assert!(a.contract.as_ref().is_some_and(|c| c.effect.is_some() && c.returns.is_some()), "{} says its effect and what it returns", a.name);
     }
 
     // ───────────── the workspace's day, not UTC's ─────────────

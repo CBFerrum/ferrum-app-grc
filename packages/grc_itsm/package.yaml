@@ -1,0 +1,14 @@
+package: grc_itsm
+version: 0.1.0
+label: Governance and IT Service Management
+description: The configuration item a risk threatens or a control protects, where IT Service Management is installed.
+depends: [grc, itsm]
+field_prefix: itsm_
+
+overlays:
+  - entity: RiskAsset
+    ops:
+      - {op: add_field, field: {name: itsm_ci, type: link, to: ConfigurationItem, label: Configuration Item, in_list: true, description: "The configuration item this asset is"}}
+  - entity: Control
+    ops:
+      - {op: add_field, field: {name: itsm_ci, type: link, to: ConfigurationItem, label: Configuration Item, in_filter: true, description: "The configuration item this control protects"}}

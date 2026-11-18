@@ -141,6 +141,32 @@ impl DocHook for RiskHook {
         }
         Ok(())
     }
+
+    async fn validate_change(&self, hc: &mut HookCtx<'_>, old: Option<&Doc>, doc: &Doc) -> Result<()> {
+        let threats = "select threat_name from e_threat where tenant_id = $1 and id = any($2) and coalesce(disabled, false) order by threat_name limit 1";
+        listed_once(hc, old, doc, "threats", "threat", threats, "a threat is listed once").await?;
+        let vulns = "select vulnerability_name from e_vulnerability where tenant_id = $1 and id = any($2) and coalesce(disabled, false) order by vulnerability_name limit 1";
+        listed_once(hc, old, doc, "vulnerabilities", "vulnerability", vulns, "a vulnerability is listed once").await
+    }
+}
+
+/// A risk names each threat (or vulnerability) once, and adds none that is switched off; rows it already had stay.
+#[allow(clippy::too_many_arguments)]
+async fn listed_once(hc: &mut HookCtx<'_>, old: Option<&Doc>, doc: &Doc, table: &str, field: &str, sql: &'static str, once: &str) -> Result<()> {
+    let ids = |d: &Doc| rows(d, table).iter().filter_map(|r| id(r, field)).collect::<Vec<Uuid>>();
+    let (now, before) = (ids(doc), old.map(ids).unwrap_or_default());
+    if now.iter().enumerate().any(|(i, x)| now[..i].contains(x)) {
+        return Err(Error::field(table, once));
+    }
+    let added: Vec<Uuid> = now.into_iter().filter(|x| !before.contains(x)).collect();
+    if added.is_empty() {
+        return Ok(());
+    }
+    let off: Option<String> = sqlx::query_scalar(sql).bind(hc.ctx.tenant).bind(&added).fetch_optional(&mut **hc.tx).await?;
+    if let Some(name) = off {
+        return Err(Error::field(table, format!("{name} is switched off")));
+    }
+    Ok(())
 }
 
 /// Whether `risk` has an acceptance approved and not yet expired on `day`.

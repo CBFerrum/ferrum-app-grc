@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.12.0
+
+Needs the same platform as 0.11.0. Package `grc` 0.11.0: metadata only.
+
+- **Every action says its effect and what it returns.** The nine actions' contracts gain `effect` and `returns`;
+  Publish It is an `external_effect` (it tells the audience), Accept It is undone by Revoke It. An agent sees what
+  each promises, and the platform's parity check lists none without a contract.
+
+## 0.11.0
+
+Needs the same platform as 0.10.0. Package `grc` 0.10.0: entities Business Process, Continuity Plan (with its
+processes) and Plan Test. Nothing changes for existing records. `ui/dist` rebuilt: the home's "Plans to test".
+
+- **Business continuity.** Processes with recovery objectives in hours; plans that cover them; plan tests on a day
+  with their result, evidence and whether recovery met the shortest objective. A plan is current while its latest
+  test passed and is within its interval, as a control is effective; upkeep ages it.
+
+## 0.10.0
+
+Needs the same platform as 0.9.0. Package `grc` 0.9.0: entities Incident (with its notices) and Notice Rule, and
+an `incident` link on Finding. No rule is seeded. Nothing changes for existing records. `ui/dist` rebuilt: the
+home's Incidents queue.
+
+- **An incident and breach register.** Severity, owner, when it was detected, contained and resolved, personal data
+  affected, lessons. Times in order; a resolved incident says what was learned.
+- **Notice deadlines are data.** Notice Rules say who is told within how many hours of detection, from which
+  severity, and whether only for personal data. Each incident gets its notices; one marked sent is never lost.
+- **Told when a deadline passes.** Upkeep marks the incident and tells its owner (`grc.incident_notice_overdue`)
+  once per deadline, even from two upkeeps at once.
+
+## 0.9.0
+
+Needs the same platform as 0.8.0. Package `grc` 0.8.0: entities Threat and Vulnerability and three tables on Risk
+(threats, vulnerabilities, assets). New connector package `grc_itsm` 0.1.0 (a configuration item on an asset row
+and on a control, where ITSM is installed). Existing risks have empty tables. `ui/dist` rebuilt for the new names.
+
+- **What could cause a risk and what it threatens.** Threats and vulnerabilities are the workspace's libraries,
+  each listed once on a risk; one switched off is not added and stays where it was. Assets are named on the risk.
+- **IT's records.** With ITSM installed, an asset and a control can name a configuration item. GRC works unchanged
+  without it.
+
+## 0.8.0
+
+Needs the same platform as 0.7.0. Package `grc` 0.7.0: entity Assessment (`ComplianceAssessment`) with its rows
+and three actions. Nothing changes for existing records. `ui/dist` rebuilt: the home's Assessments queue.
+
+- **Assess a framework.** A row per assessable requirement, what its controls say today beside the assessor's
+  result, counts and coverage. Refresh It, Use What the Controls Say (only rows not yet assessed) and Complete It
+  (when every row is assessed), each with its contract. A completed assessment is kept as it was.
+
 ## 0.7.0
 
 Needs the same platform as 0.6.0. Package `grc` 0.6.0: entities Framework and Requirement, and a Requirements

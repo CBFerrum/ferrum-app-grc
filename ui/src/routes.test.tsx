@@ -11,6 +11,9 @@ import { setFrameMode } from "@ferrum/records/frame";
 import me from "./fixtures/me.json";
 import { GRC_PACKAGES, routes } from "./routes";
 
+// The first test loads the whole page's modules: on a machine busy building, more than vitest's five seconds.
+vi.setConfig({ testTimeout: 30000 });
+
 let write = "none";
 /** Policy's description as the server gives it, its fields left out: the home reads only its rights. */
 const policyMeta = (w: string) => ({
@@ -22,6 +25,18 @@ const policyMeta = (w: string) => ({
 const asks = [
   { id: "a1", policy: "p1", _titles: { policy: "Handbook" }, person: "pat@secure.test", revision: 2, due_on: "2026-12-18", status: "Due", overdue: false },
   { id: "a2", policy: "p2", _titles: { policy: "Clean desk" }, person: "pat@secure.test", revision: 1, due_on: "2026-11-10", status: "Due", overdue: true },
+];
+
+const assessments = [{ id: "c1", title: "2026 assessment", framework: "f1", _titles: { framework: "Our baseline" }, status: "In Progress", coverage: "66.67" }];
+
+const incidents = [
+  { id: "i1", title: "Mail outage", detected_at: "2026-11-17T08:00:00Z", status: "Open", notice_overdue: false },
+  { id: "i2", title: "Customer list leaked", detected_at: "2026-11-15T08:00:00Z", status: "Contained", notice_overdue: true },
+];
+
+const plans = [
+  { id: "p1", plan_name: "Finance recovery", status: "In Force", current: false, last_tested_on: "2025-10-01" },
+  { id: "p2", plan_name: "Archive recovery", status: "In Force", current: false, last_tested_on: null },
 ];
 
 beforeEach(() => {
@@ -36,6 +51,9 @@ beforeEach(() => {
       if (path === "/api/meta") return json({ entities: [], modules: [], reports: [] });
       if (path === "/api/meta/Policy") return json(policyMeta(write));
       if (path === "/api/v1/PolicyAttestation") return json({ rows: asks, total: asks.length });
+      if (path === "/api/v1/ContinuityPlan") return json({ rows: plans, total: plans.length });
+      if (path === "/api/v1/Incident") return json({ rows: incidents, total: incidents.length });
+      if (path === "/api/v1/ComplianceAssessment") return json({ rows: assessments, total: assessments.length });
       return json({ rows: [], total: 0 });
     }),
   );
@@ -55,7 +73,8 @@ async function home() {
       </QueryClientProvider>,
     );
   });
-  for (let i = 0; i < 40; i++) await act(async () => void (await new Promise((r) => setTimeout(r, 25))));
+  // Until the page has loaded (its Policies queue is drawn), at most ten seconds on a busy machine.
+  for (let i = 0; i < 400 && !(host.textContent ?? "").includes("Policies"); i++) await act(async () => void (await new Promise((r) => setTimeout(r, 25))));
   const text = host.textContent ?? "";
   const links = [...host.querySelectorAll("a")].map((a) => a.getAttribute("href"));
   await act(async () => root.unmount());
@@ -72,6 +91,34 @@ describe("the home", () => {
     expect(text).toContain("Clean desk");
     expect(text).toContain("Overdue");
     expect(links).toContain("/e/Policy/p1");
+  });
+
+  it("the home page shows assessments in progress with their coverage", async () => {
+    write = "all";
+    const { text, links } = await home();
+    expect(text).toContain("Assessments");
+    expect(text).toContain("2026 assessment");
+    expect(text).toContain("Our baseline");
+    expect(text).toContain("66.67 %");
+    expect(links).toContain("/e/ComplianceAssessment/c1");
+  });
+
+  it("the home page puts incidents with an overdue notice first", async () => {
+    write = "all";
+    const { text, links } = await home();
+    expect(text).toContain("Notice overdue");
+    expect(text.indexOf("Customer list leaked")).toBeLessThan(text.indexOf("Mail outage"));
+    expect(text.indexOf("Incidents")).toBeLessThan(text.indexOf("Open findings"));
+    expect(links).toContain("/e/Incident/i2");
+  });
+
+  it("the home page lists plans that need a test", async () => {
+    write = "all";
+    const { text, links } = await home();
+    expect(text).toContain("Plans to test");
+    expect(text).toContain("Finance recovery");
+    expect(text).toContain("never tested");
+    expect(links).toContain("/e/ContinuityPlan/p2");
   });
 
   it("a Risk Manager's home names who has not acknowledged", async () => {
