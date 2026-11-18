@@ -1,6 +1,6 @@
 id: grc
 name: Governance and Risk
-version: 0.3.0
+version: 0.7.0
 publisher: cbferrum
 summary: "Risks scored on a matrix with their treatment and acceptance, controls tested with evidence, policies acknowledged by revision, and findings"
 description: README.md
@@ -37,8 +37,11 @@ contributes:
         A Risk is scored on the likelihood and impact matrix, before and after its controls (RiskControl). A Control
         is Planned, In Place or Retired; its ControlTest results and ControlEvidence show whether it works. A
         RiskAcceptance (Draft, Accepted, Rejected, Revoked, Expired) records who accepted a risk and until when. A
-        Policy is Published by revision, and a PolicyAcknowledgement records who read which revision. A Finding (Open,
-        Remediating, Closed) is a gap found.
+        Policy is Published by revision, and a PolicyAcknowledgement records who read which revision. A PolicyAttestation
+        (Due, Acknowledged, Withdrawn) is one person asked to acknowledge one revision by a day; those still Due have
+        not acknowledged. A Framework holds Requirements in a tree (a Requirement's parent_ref names the one it sits
+        under); a Control's requirements table lists the Requirements it answers. A Finding (Open, Remediating,
+        Closed) is a gap found.
       suggestions:
         - "What are our highest risks after their controls?"
         - "Which controls failed their last test?"

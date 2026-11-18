@@ -1,5 +1,5 @@
 package: grc
-version: 0.2.0
+version: 0.6.0
 label: Governance and Risk
 description: "Risks scored on a matrix with their treatment and acceptance, controls tested with evidence, policies acknowledged by revision, and findings"
 depends: [core]
@@ -9,7 +9,7 @@ modules:
     label: Governance and Risk
     icon: clipboard-list
     order: 58
-    items: [Risk, Control, ControlTest, RiskAcceptance, Policy, PolicyAcknowledgement, Finding, GrcSettings]
+    items: [Risk, Control, ControlTest, Framework, Requirement, RiskAcceptance, Policy, PolicyAcknowledgement, PolicyAttestation, Finding, GrcSettings]
 
 roles:
   - name: Risk Manager
@@ -18,10 +18,13 @@ roles:
       - {entity: GrcSettings, read: true, write: true, create: true}
       - {entity: Risk, read: true, write: true, create: true, export: true}
       - {entity: Control, read: true, write: true, create: true, export: true}
+      - {entity: Framework, read: true, write: true, create: true, export: true, import: true}
+      - {entity: Requirement, read: true, write: true, create: true, export: true, import: true}
       - {entity: ControlTest, read: true, write: true, create: true, export: true}
       - {entity: RiskAcceptance, read: true, write: true, create: true}
       - {entity: Policy, read: true, write: true, create: true}
       - {entity: PolicyAcknowledgement, read: true, export: true}
+      - {entity: PolicyAttestation, read: true, export: true}
       - {entity: Finding, read: true, write: true, create: true, export: true}
   - name: Risk Approver
     description: Accepts, rejects or revokes risks taken on above the tolerance.
@@ -29,11 +32,14 @@ roles:
       - {entity: Risk, read: true}
       - {entity: RiskAcceptance, read: true, write: true}
       - {entity: Control, read: true}
+      - {entity: Framework, read: true}
+      - {entity: Requirement, read: true}
   - name: Policy Reader
     description: Reads the published policies and acknowledges them.
     permissions:
       - {entity: Policy, read: true, where: {status: Published}}
       - {entity: PolicyAcknowledgement, read: true, if_owner: true}
+      - {entity: PolicyAttestation, read: true, if_owner: true}
 
 # Told by upkeep, each once: before an acceptance ends and when it has, before a finding is due and once it is late.
 messages:
@@ -75,6 +81,33 @@ messages:
       en:
         email: {subject: "{{ doc.number }} is overdue since {{ doc.due_on }}: {{ doc.title }}", body: "<p>The finding {{ doc.number }}, {{ doc.title }}, was due on {{ doc.due_on }} and is not closed. Close it saying how it was fixed, or agree a new day.</p>"}
         inapp: {title: "{{ doc.number }} is overdue since {{ doc.due_on }}", text: "{{ doc.title }}"}
+  - key: grc.policy_to_acknowledge
+    label: Policy to acknowledge
+    entity: PolicyAttestation
+    category: operational
+    channels: [email, inapp]
+    values: [policy]
+    languages:
+      en:
+        email: {subject: "Please read {{ values.policy }} by {{ doc.due_on }}", body: "<p>You are asked to read revision {{ doc.revision }} of the policy {{ values.policy }} and acknowledge it by {{ doc.due_on }}.</p>"}
+        inapp: {title: "Please read {{ values.policy }} by {{ doc.due_on }}", text: "Revision {{ doc.revision }}"}
+  - key: grc.policy_reminder
+    label: Policy still to acknowledge
+    entity: PolicyAttestation
+    category: operational
+    channels: [email, inapp]
+    values: [policy]
+    languages:
+      en:
+        email: {subject: "Reminder: acknowledge {{ values.policy }} by {{ doc.due_on }}", body: "<p>You have not yet acknowledged revision {{ doc.revision }} of the policy {{ values.policy }}. Please read it and acknowledge it by {{ doc.due_on }}.</p>"}
+        inapp: {title: "Acknowledge {{ values.policy }} by {{ doc.due_on }}", text: "Revision {{ doc.revision }}"}
+
+# Settings saved before the matrix existed get its defaults, which are the levels of before.
+backfills:
+  - name: grc_matrix_defaults
+    entity: GrcSettings
+    needs: "t.scale is null or t.medium_from is null or t.high_from is null or t.critical_from is null"
+    set: "scale = coalesce(scale, 5), medium_from = coalesce(medium_from, 5), high_from = coalesce(high_from, 10), critical_from = coalesce(critical_from, 17)"
 
 # Where people's addresses are kept. What is retained is the record of a decision, a test or an acknowledgement;
 # a workspace whose own duty differs changes it (README, "Roles and access").
@@ -84,8 +117,10 @@ personal_data:
   - {entity: ControlTest, match: tester, retain: "Who tested a control is the evidence of the test"}
   - {entity: RiskAcceptance, match: approver, retain: "Who accepted a risk is the record of the decision"}
   - {entity: PolicyAcknowledgement, match: person, retain: "Proof that a person acknowledged a policy"}
+  - {entity: PolicyAttestation, match: person, retain: "Proof of who was asked to acknowledge a policy and whether they did"}
   - {entity: Policy, match: owner, erase: [owner]}
   - {entity: Finding, match: owner, retain: "Who answered for a finding is part of the audit record"}
+  - {entity: Finding, match: steps.owner, retain: "Who was to do a step of a fix is part of the audit record"}
 
 # A leaver's open work passes to whoever takes over.
 handover:

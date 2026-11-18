@@ -1,4 +1,5 @@
 {
+  "Awaiting acknowledgement": "بانتظار الإقرار",
   "Controls to test": "ضوابط للاختبار",
   "Go to the register": "اذهب إلى السجل",
   "Governance and Risk": "الحوكمة والمخاطر",
@@ -7,6 +8,7 @@
   "Policies": "السياسات",
   "Risks": "المخاطر",
   "The register": "السجل",
+  "To acknowledge": "للإقرار",
   "due {day}": "مستحق في {day}",
   "last tested {day}": "آخر اختبار {day}",
   "never tested": "لم يُختبر قط",

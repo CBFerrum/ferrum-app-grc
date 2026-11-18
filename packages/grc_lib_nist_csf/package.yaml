@@ -1,0 +1,47 @@
+# A framework library: seed records only (README, "Writing a framework library"). A work of the United States
+# government, in the public domain. Identifiers and titles of the functions and categories only, as read on
+# 2026-11-18 from NIST's OSCAL catalog of CSF 2.0:
+# https://raw.githubusercontent.com/usnistgov/oscal-content/main/nist.gov/CSF/v2.0/json/NIST_CSF_v2.0_catalog.json
+# (categories the catalog marks withdrawn, carried over from 1.1, are left out). Subcategories are not included.
+package: grc_lib_nist_csf
+version: 0.1.0
+label: "NIST Cybersecurity Framework 2.0"
+description: "The functions and categories of the NIST Cybersecurity Framework 2.0, identifiers and titles, from NIST's public-domain catalog"
+depends: [grc]
+
+seed:
+  - entity: Framework
+    key: [framework_name]
+    records:
+      - {framework_name: NIST Cybersecurity Framework, edition: "2.0", publisher: National Institute of Standards and Technology, source_url: "https://www.nist.gov/cyberframework", description: "Functions and categories, identifiers and titles. A work of the United States government, in the public domain."}
+  - entity: Requirement
+    key: [framework, ref]
+    records:
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: GV, title: "GOVERN", assessable: false, sort_order: 1}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: GV.OC, title: "Organizational Context", parent_ref: GV, sort_order: 2}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: GV.RM, title: "Risk Management Strategy", parent_ref: GV, sort_order: 3}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: GV.RR, title: "Roles, Responsibilities, and Authorities", parent_ref: GV, sort_order: 4}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: GV.PO, title: "Policy", parent_ref: GV, sort_order: 5}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: GV.OV, title: "Oversight", parent_ref: GV, sort_order: 6}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: GV.SC, title: "Cybersecurity Supply Chain Risk Management", parent_ref: GV, sort_order: 7}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: ID, title: "IDENTIFY", assessable: false, sort_order: 8}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: ID.AM, title: "Asset Management", parent_ref: ID, sort_order: 9}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: ID.RA, title: "Risk Assessment", parent_ref: ID, sort_order: 10}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: ID.IM, title: "Improvement", parent_ref: ID, sort_order: 11}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: PR, title: "PROTECT", assessable: false, sort_order: 12}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: PR.AA, title: "Identity Management, Authentication, and Access Control", parent_ref: PR, sort_order: 13}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: PR.AT, title: "Awareness and Training", parent_ref: PR, sort_order: 14}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: PR.DS, title: "Data Security", parent_ref: PR, sort_order: 15}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: PR.PS, title: "Platform Security", parent_ref: PR, sort_order: 16}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: PR.IR, title: "Technology Infrastructure Resilience", parent_ref: PR, sort_order: 17}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: DE, title: "DETECT", assessable: false, sort_order: 18}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: DE.CM, title: "Continuous Monitoring", parent_ref: DE, sort_order: 19}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: DE.AE, title: "Adverse Event Analysis", parent_ref: DE, sort_order: 20}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: RS, title: "RESPOND", assessable: false, sort_order: 21}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: RS.MA, title: "Incident Management", parent_ref: RS, sort_order: 22}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: RS.AN, title: "Incident Analysis", parent_ref: RS, sort_order: 23}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: RS.CO, title: "Incident Response Reporting and Communication", parent_ref: RS, sort_order: 24}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: RS.MI, title: "Incident Mitigation", parent_ref: RS, sort_order: 25}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: RC, title: "RECOVER", assessable: false, sort_order: 26}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: RC.RP, title: "Incident Recovery Plan Execution", parent_ref: RC, sort_order: 27}
+      - {framework: "@Framework:framework_name=NIST Cybersecurity Framework", ref: RC.CO, title: "Incident Recovery Communication", parent_ref: RC, sort_order: 28}

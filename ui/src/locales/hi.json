@@ -1,4 +1,5 @@
 {
+  "Awaiting acknowledgement": "स्वीकृति की प्रतीक्षा",
   "Controls to test": "जाँचने के लिए नियंत्रण",
   "Go to the register": "रजिस्टर पर जाएँ",
   "Governance and Risk": "शासन और जोखिम",
@@ -7,6 +8,7 @@
   "Policies": "नीतियाँ",
   "Risks": "जोखिम",
   "The register": "रजिस्टर",
+  "To acknowledge": "स्वीकार करना है",
   "due {day}": "देय {day}",
   "last tested {day}": "पिछला परीक्षण {day}",
   "never tested": "कभी परीक्षण नहीं हुआ",

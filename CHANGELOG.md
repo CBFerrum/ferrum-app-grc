@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.7.0
+
+Needs the same platform as 0.6.0. Package `grc` 0.6.0: entities Framework and Requirement, and a Requirements
+table on Control. New package `grc_lib_nist_csf` 0.1.0 (seed records only). Existing controls keep their
+References text; nothing converts it. `ui/dist` rebuilt for the new names.
+
+- **Frameworks and requirements are records.** Requirements form a tree by reference, unique in their framework;
+  a sheet brings them in parents first; nothing sits under itself; one in use keeps its reference.
+- **A control maps the requirements it answers,** each once, never a heading, never one of a framework switched off.
+- **Libraries are data.** A library is a package of seed records on `grc` (README, "Writing a framework library").
+  Shipped: the NIST Cybersecurity Framework 2.0's functions and categories, identifiers and titles, public domain.
+
+## 0.6.0
+
+Needs the same platform as 0.5.0. Package `grc` 0.5.0: a child table of steps on Finding (`FindingStep`) and two
+Finding fields (`retest_required`, `retest`). Existing findings have no steps and need no retest: they close as
+before. `ui/dist` rebuilt for the new names.
+
+- **A fix has steps.** Each with an owner, a day and a done mark, dated on the workspace's day when ticked. A
+  finding closes only when every step is done.
+- **A retest before it closes.** A finding can require one: it closes only with a test of its own control, made on
+  or after the day it was raised, that found the control effective.
+- People named on steps are declared as personal data (kept as the audit record).
+
+## 0.5.0
+
+Needs the same platform as 0.4.0. Package `grc` 0.4.0: four Governance Settings fields (`scale`, `medium_from`,
+`high_from`, `critical_from`). Settings saved before read the empty fields as five points with 5, 10 and 17,
+which are the levels of before, so no risk changes; the backfill `grc_matrix_defaults` writes those values in. `ui/dist` rebuilt for the new words.
+
+- **The matrix is the workspace's.** Likelihood and impact are scored from 1 to the scale (2 to 10), and the scores
+  at which a risk becomes Medium, High and Critical are settings. Bands must rise and stay on the matrix; the
+  tolerance must be a score on it; the scale cannot shrink below a score a risk holds (refused, never clamped).
+- **Re-levelled at once.** Saving new bands re-levels every risk in the same transaction; the upkeep heals a risk
+  saved under the old bands at the moment they changed.
+
+## 0.4.0
+
+Needs the same platform as 0.3.0. Package `grc` 0.3.0: new entity Attestation (`PolicyAttestation`), two Policy
+fields (`audience_role`, `acknowledge_within_days`) and a unique key on Policy Acknowledgement (policy, revision,
+person). An existing workspace's policies have no audience, so nothing is asked and nothing changes. `ui/dist`
+rebuilt: the home's "To acknowledge" queue.
+
+- **Who is asked, by when, and who has not.** A policy names an audience role and the days people have. Publishing
+  a revision asks each active holder once (`asked` in the answer) and tells them (`grc.policy_to_acknowledge`); the
+  asks of earlier revisions are withdrawn. Acknowledging closes the person's ask; retiring withdraws the open ones.
+  "Who has not acknowledged the current revision of a policy?", which the assistant suggested and nothing could
+  answer, is now the list of Attestations still Due.
+- **Joiners, leavers, reminders.** Upkeep asks people who joined the role since, releases those who left it,
+  reminds once before the day (`grc.policy_reminder`, the reminder days of Governance Settings) and marks late asks
+  overdue.
+- **One acknowledgement per revision,** now also a unique key, as is one ask per person and revision.
+- A reader sees their own asks on the home page; a Risk Manager sees who has not acknowledged.
+
 ## 0.3.0
 
 Needs the same platform as 0.2.0. Package `grc` 0.2.0: new fields (`GrcSettings.reminder_days`, a hidden

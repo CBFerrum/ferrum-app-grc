@@ -4,11 +4,16 @@
   module: grc
   description: "How much risk the organisation tolerates, and how often controls are tested."
   fields:
-    - {name: tolerance, type: int, required: true, default: 6, description: "The highest score (likelihood times impact, out of 25) accepted without a risk acceptance"}
+    - {name: tolerance, type: int, required: true, default: 6, description: "The highest score (likelihood times impact) accepted without a risk acceptance"}
     - {name: test_every_days, type: int, required: true, default: 365, description: "A control's test is current this many days"}
     - {name: reminder_days, type: int, default: 14, min: 0, max: 365, description: "Days before an acceptance expires and before a finding is due that their people are reminded; 0 = no reminders"}
+    - {name: scale, type: int, required: true, default: 5, min: 2, max: 10, description: "Likelihood and impact are each scored from 1 to this"}
+    - {name: medium_from, type: int, required: true, default: 5, min: 2, description: "A current score of this or more is Medium"}
+    - {name: high_from, type: int, required: true, default: 10, min: 3, description: "A current score of this or more is High"}
+    - {name: critical_from, type: int, required: true, default: 17, min: 4, description: "A current score of this or more is Critical"}
   form:
     - {label: Appetite, fields: [tolerance, test_every_days]}
+    - {label: Matrix, fields: [scale, medium_from, high_from, critical_from]}
     - {label: Reminders, fields: [reminder_days]}
 
 - name: RiskControl
@@ -23,7 +28,7 @@
   kind: master
   module: grc
   title_field: title
-  description: Something that could go wrong, scored before controls (inherent), with them (current) and as targeted (residual), each likelihood times impact on a five-by-five matrix.
+  description: Something that could go wrong, scored before controls (inherent), with them (current) and as targeted (residual), each likelihood times impact on the workspace's matrix.
   fields:
     - {name: title, type: data, required: true, in_list: true}
     - {name: description, type: text}
@@ -45,6 +50,48 @@
   numbering: {template: "RSK-{YYYY}-{seq:4}"}
   list: {columns: [number, title, owner, current_score, level, treatment], sort: created_at desc}
 
+- name: Framework
+  label: Framework
+  label_plural: Frameworks
+  kind: master
+  module: grc
+  title_field: framework_name
+  description: A set of requirements the organisation answers to, published by someone else or its own.
+  fields:
+    - {name: framework_name, type: data, required: true, unique: true, in_list: true, label: Name}
+    - {name: edition, type: data, in_list: true, description: "Its version or year, as its publisher names it"}
+    - {name: publisher, type: data, in_list: true}
+    - {name: source_url, type: url}
+    - {name: description, type: text}
+    - {name: disabled, type: check, in_list: true, in_filter: true}
+  list: {columns: [framework_name, edition, publisher, disabled], sort: framework_name asc}
+
+- name: Requirement
+  label: Requirement
+  label_plural: Requirements
+  kind: master
+  module: grc
+  title_field: ref
+  search_fields: [ref, title]
+  description: One requirement of a framework, or a heading that groups requirements.
+  fields:
+    - {name: framework, type: link, to: Framework, required: true, in_list: true, in_filter: true}
+    - {name: ref, type: data, required: true, max_length: 60, in_list: true, label: Reference, description: "Its number or code in the framework"}
+    - {name: title, type: data, max_length: 300, in_list: true}
+    - {name: text, type: text}
+    - {name: parent_ref, type: data, max_length: 60, label: Under, description: "The reference of the requirement or heading it sits under, in the same framework"}
+    - {name: assessable, type: check, default: 1, in_filter: true, description: "Off for a heading that only groups others"}
+    - {name: sort_order, type: int, default: 0}
+  unique: [[framework, ref]]
+  indexes: [[framework, parent_ref]]
+  list: {columns: [framework, ref, title, assessable], sort: sort_order asc}
+
+- name: ControlRequirement
+  label: Requirement
+  kind: child
+  fields:
+    - {name: requirement, type: link, to: Requirement, required: true, in_list: true}
+
 - name: ControlEvidence
   label: Evidence
   kind: child
@@ -64,7 +111,8 @@
     - {name: category, type: select, options: [Policy, Process, Technical, Physical], default: Process, in_list: true, in_filter: true}
     - {name: owner, type: email, in_list: true}
     - {name: status, type: select, options: [Planned, In Place, Retired], default: Planned, in_list: true, in_filter: true}
-    - {name: references, type: data, description: "The framework requirements it answers, by their identifiers"}
+    - {name: references, type: data, description: "Free notes on what it answers; map requirements in the table"}
+    - {name: requirements, type: table, of: ControlRequirement, description: "The framework requirements it answers"}
     - {name: last_tested_on, type: date, read_only: true, no_copy: true, in_list: true}
     - {name: last_result, type: select, options: [Effective, Partially Effective, Ineffective], read_only: true, no_copy: true, in_list: true}
     - {name: effective, type: check, read_only: true, no_copy: true, in_list: true, in_filter: true}
@@ -128,13 +176,15 @@
     - {name: published_text, type: markdown, read_only: true, no_copy: true, description: "The text at its revision"}
     - {name: published_on, type: date, read_only: true, no_copy: true, in_list: true}
     - {name: review_by, type: date}
+    - {name: audience_role, type: data, max_length: 100, label: Asked To Acknowledge, description: "The role whose holders are asked to acknowledge each revision. Empty: nobody is asked; anyone who reads it may still acknowledge"}
+    - {name: acknowledge_within_days, type: int, default: 14, min: 1, max: 365, description: "Days each person asked has to acknowledge a revision"}
   actions:
     - {name: publish, label: Publish It, permission: write, condition: "doc.status != 'Retired'",
-       contract: {completion: "The policy is Published; with new text it is at its next revision, which everyone acknowledges again"}}
+       contract: {completion: "The policy is Published; with new text it is at its next revision, and each holder of its audience role is asked once to acknowledge it by its day"}}
     - {name: acknowledge, label: I Have Read It, permission: read, condition: "doc.status == 'Published'",
-       contract: {completion: "The caller's acknowledgement of the policy's current revision is recorded, once"}}
+       contract: {completion: "The caller's acknowledgement of the current revision is recorded once, and their attestation, if they were asked, is Acknowledged"}}
     - {name: retire, label: Retire It, permission: write, condition: "doc.status == 'Published'",
-       contract: {completion: "The policy is Retired and can no longer be acknowledged"}}
+       contract: {completion: "The policy is Retired; nobody is asked for it any more"}}
   list: {columns: [title, owner, revision, status, published_on], sort: title asc}
 
 - name: PolicyAcknowledgement
@@ -148,7 +198,39 @@
     - {name: revision, type: int, required: true, read_only: true, in_list: true}
     - {name: person, type: email, required: true, read_only: true, in_list: true, in_filter: true}
     - {name: acknowledged_at, type: datetime, read_only: true, in_list: true}
+  unique: [[policy, revision, person]]
   list: {columns: [policy, revision, person, acknowledged_at], sort: acknowledged_at desc}
+
+- name: PolicyAttestation
+  label: Attestation
+  label_plural: Attestations
+  kind: master
+  module: grc
+  title_field: person
+  owner_fields: [person]
+  description: One person asked to acknowledge one revision of a policy by a day.
+  fields:
+    - {name: policy, type: link, to: Policy, required: true, read_only: true, in_list: true, in_filter: true}
+    - {name: revision, type: int, required: true, read_only: true, in_list: true}
+    - {name: person, type: email, required: true, read_only: true, in_list: true, in_filter: true}
+    - {name: due_on, type: date, read_only: true, in_list: true}
+    - {name: status, type: select, options: [Due, Acknowledged, Withdrawn], default: Due, read_only: true, in_list: true, in_filter: true}
+    - {name: acknowledged_at, type: datetime, read_only: true}
+    - {name: overdue, type: check, read_only: true, in_list: true, in_filter: true}
+    - {name: reminded_for, type: date, read_only: true, hidden: true}
+  unique: [[policy, revision, person]]
+  indexes: [[status, due_on]]
+  list: {columns: [policy, revision, person, due_on, status, overdue], sort: due_on asc}
+
+- name: FindingStep
+  label: Step
+  kind: child
+  fields:
+    - {name: title, type: data, required: true, in_list: true}
+    - {name: owner, type: email, in_list: true}
+    - {name: due_on, type: date, in_list: true}
+    - {name: done, type: check, in_list: true}
+    - {name: done_on, type: date, read_only: true, in_list: true}
 
 - name: Finding
   label: Finding
@@ -166,6 +248,9 @@
     - {name: due_on, type: date, required: true, in_list: true}
     - {name: status, type: select, options: [Open, Remediating, Closed], default: Open, in_list: true, in_filter: true}
     - {name: remediation, type: text}
+    - {name: steps, type: table, of: FindingStep, description: "What is done to fix it, each step owned and dated"}
+    - {name: retest_required, type: check, in_filter: true, description: "It closes only after a test of its control, made after it was raised, found the control effective"}
+    - {name: retest, type: link, to: ControlTest, description: "The test that showed the fix works"}
     - {name: overdue, type: check, read_only: true, no_copy: true, in_list: true, in_filter: true}
     - {name: reminded_for, type: date, read_only: true, hidden: true, no_copy: true}
   numbering: {template: "FND-{YYYY}-{seq:4}"}

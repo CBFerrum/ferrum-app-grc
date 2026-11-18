@@ -1,7 +1,7 @@
 //! A security programme (FERRUM-ECOSYSTEM-014) against a real PostgreSQL
 //! (`FERRUM_GRC_TEST_DATABASE_URL`, default `postgres://ferrum:ferrum@localhost:5432/ferrum_grc_test`;
 //! reset first): risks scored inherent, current and residual, never worse with controls or as
-//! targeted; mitigation naming its controls; a risk above the tolerance accepted only by a risk
+//! targeted on the workspace's matrix; mitigation naming its controls; a risk above the tolerance accepted only by a risk
 //! approver who does not own it, until the acceptance expires; controls tested with evidence, their
 //! standing going stale; policies published by revision and acknowledged again when they change;
 //! findings overdue and closed saying how; a decided acceptance kept as decided; people told, once, before an
@@ -59,6 +59,27 @@ fn refused<V: std::fmt::Debug>(r: Result<V, Error>, kind: &str, says: &str) {
     assert!(ok && msg.contains(says), "expected {kind} saying {says:?}, got {msg}");
 }
 
+/// A framework library as a workspace's people would write one: a package with seed records only.
+const EXAMPLE_LIBRARY: &str = r#"package: grc_lib_example
+version: 0.1.0
+label: "Example framework"
+description: "A made-up framework for the suite"
+depends: [grc]
+seed:
+  - entity: Framework
+    key: [framework_name]
+    records: [{framework_name: Example Framework, edition: "1"}]
+  - entity: Requirement
+    key: [framework, ref]
+    records:
+      - {framework: "@Framework:framework_name=Example Framework", ref: "1", title: Governance, assessable: false, sort_order: 1}
+      - {framework: "@Framework:framework_name=Example Framework", ref: "1.1", title: A policy exists, parent_ref: "1", sort_order: 2}
+"#;
+
+fn example_library() -> ferrum_meta::Package {
+    ferrum_meta::catalog::load_embedded(&[("grc_lib_example", "package.yaml", EXAMPLE_LIBRARY)]).expect("the example library").remove(0)
+}
+
 #[test]
 fn a_security_programme() {
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(16 << 20).build().unwrap();
@@ -71,6 +92,7 @@ async fn scenario() {
     sqlx::raw_sql("drop schema if exists public cascade; create schema public;").execute(&db.pool).await.expect("reset");
     let mut packages = ferrum_domain::packages().expect("platform packages");
     packages.extend(ferrum_app_grc::packages().expect("app packages"));
+    packages.push(example_library());
     let catalog = Catalog::from_packages(packages).expect("catalog");
     let mut hooks = HookRegistry::default();
     ferrum_domain::register(&mut hooks);
@@ -140,6 +162,36 @@ async fn scenario() {
         json!({"title": title, "owner": owner, "inherent_likelihood": scores[0], "inherent_impact": scores[1], "current_likelihood": scores[2], "current_impact": scores[3],
                "residual_likelihood": scores[4], "residual_impact": scores[5], "treatment": treatment, "controls": controls})
     };
+    let sql = |q: &'static str, id: Uuid| {
+        let k = k.clone();
+        async move {
+            let mut tx = k.db.tenant_tx(tenant).await.unwrap();
+            sqlx::query(q).bind(tenant).bind(id).execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+        }
+    };
+    let matrix = uid(&t.k.list(&rm, "GrcSettings", &ListQuery::default()).await.unwrap().rows[0]["id"]);
+    // A three-point scale.
+    let three = json!({"scale": 3, "medium_from": 3, "high_from": 5, "critical_from": 8, "tolerance": 2});
+    t.set(&rm, "GrcSettings", matrix, three).await.expect("a three-point matrix");
+    refused(t.k.insert(&rm, "Risk", obj(risk("Flood", "cfo@secure.test", [4, 3, 3, 3, 1, 1], "Open", json!([])))).await, "invalid", "from 1 to 3");
+    let flood = uid(&t.insert(&rm, "Risk", risk("Flood", "cfo@secure.test", [3, 3, 3, 3, 1, 1], "Open", json!([]))).await["id"]);
+    assert_eq!(t.get("Risk", flood).await["level"], "Critical", "9 on a three-point scale");
+    let spill = uid(&t.insert(&rm, "Risk", risk("Coffee spill", "cfo@secure.test", [1, 2, 1, 2, 1, 1], "Open", json!([]))).await["id"]);
+    assert_eq!(t.get("Risk", spill).await["level"], "Low");
+    // Bands in the wrong order are refused; so is a tolerance above the scale squared.
+    refused(t.set(&rm, "GrcSettings", matrix, json!({"high_from": 3})).await, "invalid", "rising order");
+    refused(t.set(&rm, "GrcSettings", matrix, json!({"critical_from": 10})).await, "invalid", "rising order");
+    refused(t.set(&rm, "GrcSettings", matrix, json!({"tolerance": 10})).await, "invalid", "a score on the matrix");
+    // A workspace that changes nothing keeps today's levels: settings saved before this release (the matrix's columns
+    // empty) score on five points with today's bands, which the upkeep brings every risk back to.
+    sql(
+        "update e_grc_settings set scale = null, medium_from = null, high_from = null, critical_from = null, tolerance = 6 where tenant_id = $1 and id = $2",
+        matrix,
+    )
+    .await;
+    ferrum_app_grc::maintenance_on(&k, tenant, today).await.unwrap();
+    assert_eq!(t.get("Risk", flood).await["level"], "Medium", "9 on five points");
     refused(t.k.insert(&rm, "Risk", obj(risk("Bad", "cfo@secure.test", [6, 3, 3, 3, 2, 2], "Open", json!([])))).await, "invalid", "from 1 to 5");
     refused(t.k.insert(&rm, "Risk", obj(risk("Worse", "cfo@secure.test", [2, 2, 3, 3, 2, 2], "Open", json!([])))).await, "invalid", "do not make a risk worse");
     refused(
@@ -162,6 +214,27 @@ async fn scenario() {
     let ransom_id = uid(&ransom["id"]);
     let small = uid(&t.insert(&rm, "Risk", risk("Printer jams", "cfo@secure.test", [2, 3, 2, 3, 1, 1], "Accept", json!([]))).await["id"]);
     assert_eq!(t.get("Risk", small).await["level"], "Medium", "6, at the tolerance: accepted without an acceptance");
+    // The scale does not shrink below a score in use.
+    let five = |high: i64| json!({"scale": 5, "medium_from": 5, "high_from": high, "critical_from": 17});
+    refused(
+        t.set(&rm, "GrcSettings", matrix, json!({"scale": 4, "medium_from": 5, "high_from": 10, "critical_from": 16})).await,
+        "invalid",
+        "1 risks are scored above it",
+    );
+    assert_eq!(t.get("Risk", ransom_id).await["inherent_likelihood"], 5, "unchanged");
+    // Changing the bands re-levels every risk at once.
+    let fraud = uid(&t.insert(&rm, "Risk", risk("Invoice fraud", "cfo@secure.test", [5, 2, 5, 2, 1, 1], "Open", json!([]))).await["id"]);
+    assert_eq!(t.get("Risk", fraud).await["level"], "High");
+    t.set(&rm, "GrcSettings", matrix, five(12)).await.unwrap();
+    assert_eq!(t.get("Risk", fraud).await["level"], "Medium", "10, below the new High, with no upkeep");
+    t.set(&rm, "GrcSettings", matrix, five(10)).await.unwrap();
+    assert_eq!((t.get("Risk", fraud).await["level"].as_str(), t.get("Risk", ransom_id).await["level"].as_str()), (Some("High"), Some("High")));
+    // The upkeep heals a level written under old bands.
+    sql("update e_risk set level = 'Low' where tenant_id = $1 and id = $2", fraud).await;
+    ferrum_app_grc::maintenance_on(&k, tenant, today).await.unwrap();
+    assert_eq!(t.get("Risk", fraud).await["level"], "High");
+    // Who may change the matrix: not a Risk Approver.
+    refused(t.set(&ra, "GrcSettings", matrix, five(12)).await, "forbidden", "");
     refused(t.set(&rm, "Risk", ransom_id, json!({"treatment": "Accept"})).await, "invalid", "only with an approved acceptance");
 
     // ───────────── accepting a risk ─────────────
@@ -339,6 +412,248 @@ async fn scenario() {
     t.set(&rm, "Finding", f1, json!({"status": "Closed", "remediation": "Enforced for every admin"})).await.unwrap();
     assert_eq!(t.get("Finding", f1).await["overdue"], false, "closed, it is not overdue");
 
+    // ───────────── remediation plans: steps, and a retest before a finding closes ─────────────
+    let step = |title: &str, done: bool| json!({"title": title, "owner": "ops@secure.test", "due_on": (today + Duration::days(5)).to_string(), "done": done});
+    let mut planned = finding("Weak TLS on the VPN", (today + Duration::days(20)).to_string());
+    planned["steps"] = json!([step("Disable TLS 1.0", true), step("Rescan", false)]);
+    let weak = uid(&t.insert(&rm, "Finding", planned).await["id"]);
+    // A step done is dated on the workspace's day, and undone loses the date.
+    let steps = |d: &Doc| d["steps"].as_array().unwrap().iter().map(|r| r["done_on"].as_str().map(str::to_string)).collect::<Vec<_>>();
+    assert_eq!(steps(&t.get("Finding", weak).await), [Some(today.to_string()), None]);
+    t.set(&rm, "Finding", weak, json!({"steps": [step("Disable TLS 1.0", false), step("Rescan", false)]})).await.unwrap();
+    assert_eq!(steps(&t.get("Finding", weak).await), [None, None]);
+    // A finding with an open step does not close; with every step done it does.
+    let closing = |steps: Value| json!({"status": "Closed", "remediation": "TLS 1.2 only", "steps": steps});
+    refused(t.set(&rm, "Finding", weak, closing(json!([step("Disable TLS 1.0", true), step("Rescan", false)]))).await, "invalid", "1 steps are not done");
+    t.set(&rm, "Finding", weak, closing(json!([step("Disable TLS 1.0", true), step("Rescan", true)]))).await.expect("every step done");
+    // Who may change a finding's plan: not a Risk Approver.
+    refused(t.set(&ra, "Finding", f2, json!({"steps": [step("Mine", false)]})).await, "forbidden", "");
+    // A finding that needs a retest closes only with one, of its own control, effective, made after it was raised.
+    let mut needs = finding("Admins without MFA", (today + Duration::days(20)).to_string());
+    needs["retest_required"] = json!(true);
+    let admins = uid(&t.insert(&rm, "Finding", needs).await["id"]);
+    let close_with = |retest: Option<Uuid>| json!({"status": "Closed", "remediation": "Enforced", "retest": retest.map(|r| r.to_string())});
+    refused(t.set(&rm, "Finding", admins, close_with(None)).await, "invalid", "the test that showed the fix works");
+    let other = uid(&t.insert(&rm, "ControlTest", test(backups, today.to_string(), "Effective", proof.clone())).await["id"]);
+    refused(t.set(&rm, "Finding", admins, close_with(Some(other))).await, "invalid", "is a test of this finding's control");
+    let failed = uid(&t.insert(&rm, "ControlTest", test(mfa, today.to_string(), "Ineffective", json!([]))).await["id"]);
+    refused(t.set(&rm, "Finding", admins, close_with(Some(failed))).await, "invalid", "found the control effective");
+    let before = uid(&t.insert(&rm, "ControlTest", test(mfa, (today - Duration::days(1)).to_string(), "Effective", proof.clone())).await["id"]);
+    refused(t.set(&rm, "Finding", admins, close_with(Some(before))).await, "invalid", "was made after the finding was raised");
+    let retest = uid(&t.insert(&rm, "ControlTest", test(mfa, today.to_string(), "Effective", proof.clone())).await["id"]);
+    t.set(&rm, "Finding", admins, close_with(Some(retest))).await.expect("closed with its retest");
+    assert_eq!(t.get("Control", mfa).await["effective"], true, "the retest also stands for the control");
+
+    // ───────────── attestation: who is asked to acknowledge a policy, by when, and who has not ─────────────
+    let asks = |policy: Uuid| {
+        let k = k.clone();
+        let admin = t.admin.clone();
+        async move {
+            let q = ListQuery { filters: vec![ferrum_kernel::Filter::eq("policy", json!(policy.to_string()))], ..Default::default() };
+            let mut rows: Vec<(String, i64, String)> = k
+                .list(&admin, "PolicyAttestation", &q)
+                .await
+                .unwrap()
+                .rows
+                .iter()
+                .map(|r| (r["person"].as_str().unwrap().to_string(), r["revision"].as_i64().unwrap(), r["status"].as_str().unwrap().to_string()))
+                .collect();
+            rows.sort();
+            rows
+        }
+    };
+    let ask_of = |policy: Uuid, person: &'static str, revision: i64| {
+        let k = k.clone();
+        async move {
+            let mut tx = k.db.tenant_tx(tenant).await.unwrap();
+            let id: Uuid = sqlx::query_scalar("select id from e_policy_attestation where tenant_id = $1 and policy = $2 and person = $3 and revision = $4")
+                .bind(tenant)
+                .bind(policy)
+                .bind(person)
+                .bind(revision)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+            id
+        }
+    };
+    // A policy with no audience behaves as before.
+    let plain = uid(&t.insert(&rm, "Policy", json!({"title": "Visitors", "owner": "rm@secure.test", "text": "Sign in at the desk."})).await["id"]);
+    assert_eq!(t.act(&rm, "Policy", plain, "publish").await.unwrap()["asked"], 0);
+    assert!(asks(plain).await.is_empty(), "nobody asked");
+    // Publishing asks each holder of the audience once.
+    let handbook = uid(&t
+        .insert(
+            &rm,
+            "Policy",
+            json!({"title": "Handbook", "owner": "rm@secure.test", "text": "Be kind.", "audience_role": "Policy Reader", "acknowledge_within_days": 30}),
+        )
+        .await["id"]);
+    assert_eq!(t.act(&rm, "Policy", handbook, "publish").await.unwrap()["asked"], 2);
+    let due = (today + Duration::days(30)).to_string();
+    assert_eq!(asks(handbook).await, [("pat@secure.test".into(), 1, "Due".into()), ("quinn@secure.test".into(), 1, "Due".into())]);
+    let pat1 = ask_of(handbook, "pat@secure.test", 1).await;
+    assert_eq!(t.get("PolicyAttestation", pat1).await["due_on"], json!(due));
+    assert_eq!(
+        (sends(pat1, "grc.policy_to_acknowledge").await, sends(ask_of(handbook, "quinn@secure.test", 1).await, "grc.policy_to_acknowledge").await),
+        (1, 1)
+    );
+    refused(t.act(&rm, "Policy", handbook, "publish").await, "invalid", "nothing new to publish");
+    assert_eq!(asks(handbook).await.len(), 2, "asks nobody again");
+    // Acknowledging closes the person's own ask; someone not asked can still acknowledge, and gets no ask.
+    t.act(&reader, "Policy", handbook, "acknowledge").await.unwrap();
+    assert_eq!(t.get("PolicyAttestation", pat1).await["status"], "Acknowledged");
+    t.act(&rm, "Policy", handbook, "acknowledge").await.expect("anyone who reads it may acknowledge");
+    assert_eq!(asks(handbook).await.len(), 2);
+    // A new revision asks again and withdraws the old asks.
+    t.set(&rm, "Policy", handbook, json!({"text": "Be kind. Be on time."})).await.unwrap();
+    assert_eq!(t.act(&rm, "Policy", handbook, "publish").await.unwrap()["asked"], 2);
+    assert_eq!(
+        asks(handbook).await,
+        [
+            ("pat@secure.test".into(), 1, "Acknowledged".into()),
+            ("pat@secure.test".into(), 2, "Due".into()),
+            ("quinn@secure.test".into(), 1, "Withdrawn".into()),
+            ("quinn@secure.test".into(), 2, "Due".into())
+        ]
+    );
+    // Two acknowledgements at once make one.
+    let race = uid(&t.insert(&rm, "Policy", json!({"title": "Race", "owner": "rm@secure.test", "text": "0"})).await["id"]);
+    for i in 1..=20 {
+        t.set(&rm, "Policy", race, json!({"text": format!("revision {i}")})).await.unwrap();
+        t.act(&rm, "Policy", race, "publish").await.unwrap();
+        let (a, b) = tokio::join!(
+            t.k.run_action(&reader2, "Policy", race, "acknowledge", Value::Null),
+            t.k.run_action(&reader2, "Policy", race, "acknowledge", Value::Null)
+        );
+        assert!(a.is_ok() != b.is_ok(), "one of two at once: {a:?} {b:?}");
+        refused(if a.is_err() { a } else { b }, "invalid", "already");
+    }
+    let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
+    let acks: i64 = sqlx::query_scalar("select count(*) from e_policy_acknowledgement where tenant_id = $1 and policy = $2")
+        .bind(t.tenant)
+        .bind(race)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(acks, 20, "one per revision");
+    // Someone who joins the role is asked by the upkeep; someone who leaves is released.
+    let joe = t.user("joe@secure.test", &["Policy Reader"]).await;
+    t.k.set_user_roles(&t.admin, reader2.user, &[]).await.unwrap();
+    t.set(&rm, "GrcSettings", settings, json!({"reminder_days": 0})).await.unwrap();
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(1)).await.unwrap();
+    let joe2 = ask_of(handbook, "joe@secure.test", 2).await;
+    let pat2 = ask_of(handbook, "pat@secure.test", 2).await;
+    assert_eq!(t.get("PolicyAttestation", joe2).await["due_on"], json!((today + Duration::days(31)).to_string()), "his day counts from when he joined");
+    assert_eq!(sends(joe2, "grc.policy_to_acknowledge").await, 1);
+    assert_eq!(t.get("PolicyAttestation", ask_of(handbook, "quinn@secure.test", 2).await).await["status"], "Withdrawn");
+    // A reminder goes once before the day, even from two upkeeps at once; with reminder days 0, none.
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(16)).await.unwrap();
+    assert_eq!(sends(pat2, "grc.policy_reminder").await, 0, "reminder days 0");
+    t.set(&rm, "GrcSettings", settings, json!({"reminder_days": 14})).await.unwrap();
+    let (a, b) = tokio::join!(
+        ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(16)),
+        ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(16))
+    );
+    a.unwrap();
+    b.unwrap();
+    assert_eq!((sends(pat2, "grc.policy_reminder").await, sends(joe2, "grc.policy_reminder").await), (1, 0), "14 days before hers; 15 before his, not yet");
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(17)).await.unwrap();
+    assert_eq!((sends(pat2, "grc.policy_reminder").await, sends(joe2, "grc.policy_reminder").await), (1, 1), "once each");
+    // A reader sees only their own asks; a Risk Manager sees who has not acknowledged.
+    let mine = t.k.list(&joe, "PolicyAttestation", &ListQuery::default()).await.unwrap().rows;
+    assert_eq!(mine.len(), 1, "joe's own ask");
+    let open = ListQuery {
+        filters: vec![ferrum_kernel::Filter::eq("policy", json!(handbook.to_string())), ferrum_kernel::Filter::eq("status", json!("Due"))],
+        ..Default::default()
+    };
+    let mut not_yet: Vec<String> =
+        t.k.list(&rm, "PolicyAttestation", &open).await.unwrap().rows.iter().map(|r| r["person"].as_str().unwrap().to_string()).collect();
+    not_yet.sort();
+    assert_eq!(not_yet, ["joe@secure.test", "pat@secure.test"], "who has not acknowledged the current revision");
+    // Nobody but the app writes an attestation.
+    refused(t.set(&rm, "PolicyAttestation", pat2, json!({"status": "Acknowledged"})).await, "forbidden", "");
+    refused(
+        t.k.insert(&rm, "PolicyAttestation", obj(json!({"policy": handbook.to_string(), "revision": 2, "person": "rm@secure.test"}))).await,
+        "forbidden",
+        "",
+    );
+    // Past its day an ask is overdue; retiring the policy withdraws it.
+    ferrum_app_grc::maintenance_on(&k, tenant, today + Duration::days(31)).await.unwrap();
+    assert_eq!(
+        (t.get("PolicyAttestation", pat2).await["overdue"].as_bool(), t.get("PolicyAttestation", joe2).await["overdue"].as_bool()),
+        (Some(true), Some(false))
+    );
+    t.act(&reader, "Policy", handbook, "acknowledge").await.unwrap();
+    let pat2_doc = t.get("PolicyAttestation", pat2).await;
+    assert_eq!((pat2_doc["status"].as_str(), pat2_doc["overdue"].as_bool()), (Some("Acknowledged"), Some(false)));
+    t.act(&rm, "Policy", handbook, "retire").await.unwrap();
+    assert_eq!(t.get("PolicyAttestation", joe2).await["status"], "Withdrawn");
+
+    // ───────────── frameworks and requirements ─────────────
+    let fw = |name: &str| json!({"framework_name": name, "edition": "2026", "publisher": "Secure Co"});
+    let ours = uid(&t.insert(&rm, "Framework", fw("Our baseline")).await["id"]);
+    let req = |framework: Uuid, r: &str, under: Option<&str>, assessable: bool| json!({"framework": framework.to_string(), "ref": r, "title": format!("Requirement {r}"), "parent_ref": under, "assessable": assessable});
+    // A framework's requirements form a tree.
+    let heading = uid(&t.insert(&rm, "Requirement", req(ours, "A", None, false)).await["id"]);
+    let a1 = uid(&t.insert(&rm, "Requirement", req(ours, "A.1", Some("A"), true)).await["id"]);
+    let a2 = uid(&t.insert(&rm, "Requirement", req(ours, "A.2", Some("A"), true)).await["id"]);
+    refused(t.k.insert(&rm, "Requirement", obj(req(ours, "B.1", Some("B"), true))).await, "invalid", "bring parents in first");
+    // A reference is unique in its framework, and may repeat in another.
+    let theirs = uid(&t.insert(&rm, "Framework", fw("Supplier code")).await["id"]);
+    assert!(t.k.insert(&rm, "Requirement", obj(req(ours, "A.1", Some("A"), true))).await.is_err(), "A.1 twice in one framework");
+    t.insert(&rm, "Requirement", req(theirs, "A", None, true)).await;
+    // Nothing sits under itself.
+    let x = uid(&t.insert(&rm, "Requirement", req(theirs, "X", None, true)).await["id"]);
+    t.insert(&rm, "Requirement", req(theirs, "Y", Some("X"), true)).await;
+    refused(t.set(&rm, "Requirement", x, json!({"parent_ref": "Y"})).await, "invalid", "under itself");
+    refused(t.set(&rm, "Requirement", x, json!({"parent_ref": "X"})).await, "invalid", "is another requirement");
+    // A sheet brings requirements in, parents first.
+    let sheet = |order: &[&str]| order.iter().map(|r| req(theirs, r, r.rsplit_once('.').map(|(p, _)| p), true)).collect::<Vec<_>>();
+    let (made, failed) = t.k.import_rows(&rm, "Requirement", &sheet(&["C", "C.1", "C.2", "C.1.1", "C.1.2"])).await.unwrap();
+    assert_eq!((made.len(), failed.len()), (5, 0), "{failed:?}");
+    let (made, failed) = t.k.import_rows(&rm, "Requirement", &sheet(&["D.1", "D"])).await.unwrap();
+    assert_eq!(made.len(), 1);
+    assert_eq!(failed[0]["row"], 0);
+    assert!(failed[0].to_string().contains("parent_ref"), "{failed:?}");
+    // A control answers requirements: each once, never a heading, never one of a framework switched off.
+    let maps = |ids: &[Uuid]| json!({"requirements": ids.iter().map(|i| json!({"requirement": i.to_string()})).collect::<Vec<_>>()});
+    t.set(&rm, "Control", mfa, maps(&[a1, a2])).await.expect("two requirements answered");
+    refused(t.set(&rm, "Control", backups, maps(&[a1, a1])).await, "invalid", "A.1 is listed twice");
+    refused(t.set(&rm, "Control", backups, maps(&[heading])).await, "invalid", "A is a heading");
+    let off = uid(&t.insert(&rm, "Framework", json!({"framework_name": "Retired code", "disabled": true})).await["id"]);
+    let z = uid(&t.insert(&rm, "Requirement", req(off, "Z", None, true)).await["id"]);
+    refused(t.set(&rm, "Control", backups, maps(&[z])).await, "invalid", "switched off");
+    t.set(&rm, "Framework", ours, json!({"disabled": true})).await.unwrap();
+    t.set(&rm, "Control", mfa, json!({"description": "Every sign-in"})).await.expect("rows already there stay");
+    assert_eq!(t.get("Control", mfa).await["requirements"].as_array().unwrap().len(), 2);
+    t.set(&rm, "Framework", ours, json!({"disabled": false})).await.unwrap();
+    // A requirement in use keeps its framework and reference.
+    refused(t.set(&rm, "Requirement", a1, json!({"ref": "A.9"})).await, "invalid", "keeps its framework and reference");
+    refused(t.set(&rm, "Requirement", heading, json!({"ref": "AA"})).await, "invalid", "keeps its framework and reference");
+    t.set(&rm, "Requirement", a2, json!({"title": "Second, reworded"})).await.expect("its words may change");
+    // A library installs its framework once.
+    for _ in 0..2 {
+        t.k.install_packages(tenant, &["grc_lib_example".to_string()]).await.expect("the library");
+    }
+    let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
+    let seeded: (i64, i64) = sqlx::query_as(
+        "select (select count(*) from e_framework where tenant_id = $1 and framework_name = 'Example Framework'), \
+         (select count(*) from e_requirement r join e_framework f on f.tenant_id = r.tenant_id and f.id = r.framework \
+          where r.tenant_id = $1 and f.framework_name = 'Example Framework')",
+    )
+    .bind(t.tenant)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(seeded, (1, 2), "made once");
+    // Who may: a Risk Approver reads, and neither creates nor imports.
+    refused(t.k.insert(&ra, "Framework", obj(fw("Mine"))).await, "forbidden", "");
+    refused(t.k.import_rows(&ra, "Requirement", &sheet(&["E"])).await, "forbidden", "");
+    assert!(!t.k.list(&ra, "Requirement", &ListQuery::default()).await.unwrap().rows.is_empty());
+
     // ───────────── who may do what ─────────────
     refused(t.k.insert(&ra, "Risk", obj(risk("Mine", "ra@secure.test", [1, 1, 1, 1, 1, 1], "Open", json!([])))).await, "forbidden", "");
     refused(t.k.insert(&reader, "Policy", obj(json!({"title": "Mine", "text": "x"}))).await, "forbidden", "");
@@ -348,7 +663,8 @@ async fn scenario() {
     let grc = ferrum_app_grc::packages().unwrap().into_iter().find(|p| p.name() == "grc").unwrap();
     let mut declared: Vec<&str> = grc.manifest.personal_data.iter().map(|d| d.entity.as_str()).collect();
     declared.sort();
-    assert_eq!(declared, ["Control", "ControlTest", "Finding", "Policy", "PolicyAcknowledgement", "Risk", "RiskAcceptance"]);
+    declared.dedup();
+    assert_eq!(declared, ["Control", "ControlTest", "Finding", "Policy", "PolicyAcknowledgement", "PolicyAttestation", "Risk", "RiskAcceptance"]);
     let mut handed: Vec<&str> = grc.manifest.handover.iter().map(|h| h.entity.as_str()).collect();
     handed.sort();
     assert_eq!(handed, ["Control", "Finding", "Policy", "Risk"]);
