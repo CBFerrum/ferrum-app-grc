@@ -1,5 +1,5 @@
 package: grc
-version: 0.10.0
+version: 0.11.0
 label: Governance and Risk
 description: "Risks scored on a matrix with their treatment and acceptance, controls tested with evidence, policies acknowledged by revision, and findings"
 depends: [core]

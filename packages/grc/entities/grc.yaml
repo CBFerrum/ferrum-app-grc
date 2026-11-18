@@ -167,17 +167,17 @@
       label: Refresh It
       permission: write
       condition: "doc.status == 'In Progress'"
-      contract: {completion: "Every assessable requirement of the framework has a row, and each row shows what its controls say today; results already entered are unchanged"}
+      contract: {effect: transactional_action, returns: {type: object, properties: {rows: {type: integer}, added: {type: integer}}}, completion: "Every assessable requirement of the framework has a row, and each row shows what its controls say today; results already entered are unchanged"}
     - name: accept_suggestions
       label: Use What the Controls Say
       permission: write
       condition: "doc.status == 'In Progress'"
-      contract: {completion: "Each row still Not Assessed whose controls say something takes that as its result; other rows are unchanged"}
+      contract: {effect: transactional_action, returns: {type: object, properties: {taken: {type: integer}}}, completion: "Each row still Not Assessed whose controls say something takes that as its result; other rows are unchanged"}
     - name: complete_assessment
       label: Complete It
       permission: write
       condition: "doc.status == 'In Progress'"
-      contract: {completion: "The assessment is Complete on the workspace's day; its rows can no longer be changed"}
+      contract: {effect: transactional_action, returns: {type: object, properties: {status: {type: string}, coverage: {type: [string, "null"]}}}, completion: "The assessment is Complete on the workspace's day; its rows can no longer be changed"}
   numbering: {template: "ASM-{YYYY}-{seq:4}"}
   list: {columns: [number, title, framework, owner, coverage, status], sort: created_at desc}
 
@@ -300,11 +300,11 @@
     - {name: reminded_for, type: date, read_only: true, hidden: true, no_copy: true}
   actions:
     - {name: accept_risk, label: Accept It, permission: write, condition: "doc.status == 'Draft'",
-       contract: {completion: "The acceptance is Accepted by the caller, a Risk Approver who does not own the risk, and the risk's treatment is Accept until the acceptance expires or is revoked"}}
+       contract: {effect: transactional_action, returns: {type: object, properties: {status: {type: string}}}, compensate_with: revoke_acceptance, completion: "The acceptance is Accepted by the caller, a Risk Approver who does not own the risk, and the risk's treatment is Accept until the acceptance expires or is revoked"}}
     - {name: reject_acceptance, label: Reject It, permission: write, condition: "doc.status == 'Draft'",
-       contract: {completion: "The acceptance is Rejected by the caller; the risk is unchanged"}}
+       contract: {effect: transactional_action, returns: {type: object, properties: {status: {type: string}}}, completion: "The acceptance is Rejected by the caller; the risk is unchanged"}}
     - {name: revoke_acceptance, label: Revoke It, permission: write, condition: "doc.status == 'Accepted'",
-       contract: {completion: "The acceptance is Revoked and the risk is Open again unless another acceptance still holds it"}}
+       contract: {effect: transactional_action, returns: {type: object, properties: {status: {type: string}}}, completion: "The acceptance is Revoked and the risk is Open again unless another acceptance still holds it"}}
   numbering: {template: "ACC-{YYYY}-{seq:4}"}
   list: {columns: [number, risk, expires_on, status, approver], sort: created_at desc}
 
@@ -328,11 +328,11 @@
     - {name: acknowledge_within_days, type: int, default: 14, min: 1, max: 365, description: "Days each person asked has to acknowledge a revision"}
   actions:
     - {name: publish, label: Publish It, permission: write, condition: "doc.status != 'Retired'",
-       contract: {completion: "The policy is Published; with new text it is at its next revision, and each holder of its audience role is asked once to acknowledge it by its day"}}
+       contract: {effect: external_effect, unknown_outcome: manual, returns: {type: object, properties: {status: {type: string}, revision: {type: integer}, asked: {type: integer}}}, completion: "The policy is Published; with new text it is at its next revision, and each holder of its audience role is asked once to acknowledge it by its day"}}
     - {name: acknowledge, label: I Have Read It, permission: read, condition: "doc.status == 'Published'",
-       contract: {completion: "The caller's acknowledgement of the current revision is recorded once, and their attestation, if they were asked, is Acknowledged"}}
+       contract: {effect: transactional_action, returns: {type: object, properties: {acknowledged: {type: integer}}}, completion: "The caller's acknowledgement of the current revision is recorded once, and their attestation, if they were asked, is Acknowledged"}}
     - {name: retire, label: Retire It, permission: write, condition: "doc.status == 'Published'",
-       contract: {completion: "The policy is Retired; nobody is asked for it any more"}}
+       contract: {effect: transactional_action, returns: {type: object, properties: {status: {type: string}}}, completion: "The policy is Retired; nobody is asked for it any more"}}
   list: {columns: [title, owner, revision, status, published_on], sort: title asc}
 
 - name: PolicyAcknowledgement

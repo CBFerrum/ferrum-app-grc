@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.0
+
+Needs the same platform as 0.11.0. Package `grc` 0.11.0: metadata only.
+
+- **Every action says its effect and what it returns.** The nine actions' contracts gain `effect` and `returns`;
+  Publish It is an `external_effect` (it tells the audience), Accept It is undone by Revoke It. An agent sees what
+  each promises, and the platform's parity check lists none without a contract.
+
 ## 0.11.0
 
 Needs the same platform as 0.10.0. Package `grc` 0.10.0: entities Business Process, Continuity Plan (with its

@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.11.0-7c3aed?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.12.0-7c3aed?style=flat-square)](CHANGELOG.md)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
 ![Rust](https://img.shields.io/badge/Rust-server-b7410e?style=flat-square&logo=rust)
@@ -44,7 +44,7 @@ what and until when. It ships no control frameworks: a control names the framewo
 
 | | |
 |---|---|
-| **Version** | 0.11.0 (platform `>=0.4.0, <0.5`) |
+| **Version** | 0.12.0 (platform `>=0.4.0, <0.5`) |
 | **Kind** | Own interface at `/grc/`, plus Ferrum's generic records screens for every entity |
 | **What it adds** | 18 entities and a settings record (Business Process, Continuity Plan, Plan Test, Incident, Notice Rule, Risk, Threat, Vulnerability, Control, Control Test, Framework, Requirement, Assessment, Risk Acceptance, Policy, Policy Acknowledgement, Attestation, Finding), 10 child tables, 3 roles, 1 menu module, 3 numbered record types |
 | **Depends on** | Ferrum core only |
@@ -475,6 +475,7 @@ Compared with ServiceNow GRC (Integrated Risk Management), Archer, MetricStream,
 
 ### ✅ Recently shipped
 
+- [x] **0.12.0.** Every action's contract says its effect and what it returns.
 - [x] **0.11.0.** Business continuity: processes with recovery objectives, plans, and plan tests that go stale.
 - [x] **0.10.0.** An incident and breach register, with notice deadlines kept as rules and the owner told when one passes.
 - [x] **0.9.0.** Threats, vulnerabilities and assets on a risk; the ITSM connector for configuration items.

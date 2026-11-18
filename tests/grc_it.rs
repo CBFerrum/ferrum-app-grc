@@ -960,6 +960,7 @@ async fn scenario() {
     assert_eq!(actions.len(), 9);
     for a in actions {
         assert!(a.contract.as_ref().and_then(|c| c.completion.as_deref()).is_some_and(|c| !c.is_empty()), "{} says what done means", a.name);
+        assert!(a.contract.as_ref().is_some_and(|c| c.effect.is_some() && c.returns.is_some()), "{} says its effect and what it returns", a.name);
     }
 
     // ───────────── the workspace's day, not UTC's ─────────────
